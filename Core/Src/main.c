@@ -53,7 +53,6 @@ struct WheelData
 	uint32_t time_ms_wheel[MAX_ANGLE_WHEEL_ARRAY];
 	double angle[MAX_ANGLE_WHEEL_ARRAY];
 	float speed[MAX_ANGLE_WHEEL_ARRAY];
-	int quadrant[MAX_ANGLE_WHEEL_ARRAY];
 
 	float averspeed,turns_left,prior_quadrant,current_quadrant;
 	uint32_t PWM_Channel;
@@ -220,24 +219,65 @@ void Motor_Init(void)
 	  __HAL_TIM_SET_COMPARE(&RightW.htim, RightW.PWM_Channel, RightW.PWM_Value );
 }
 
-void SetDir_Speed(float Speed)
-{
+void SetDir_Speed(float Speed) {
 
-  RightW.Target_speed = Speed;
-  LeftW.Target_speed  = Speed;
+	RightW.Target_speed = Speed;
+	LeftW.Target_speed = Speed;
 
-  if (Speed==0) {
-    LeftW.PWM_Value  = 00;
-    RightW.PWM_Value = 00;
-  } else {
-    LeftW.PWM_Value  = 10000;
-    RightW.PWM_Value = 10000;
-  }
+	RightW.PWM_Value = (int32_t) Speed;
+	LeftW.PWM_Value = (int32_t) Speed;
 
-  __HAL_TIM_SET_COMPARE(&LeftW.htim, LeftW.PWM_Channel, LeftW.PWM_Value );
-  __HAL_TIM_SET_COMPARE(&RightW.htim, RightW.PWM_Channel, RightW.PWM_Value );
+	if (LeftW.Target_speed > 0) {
+		LeftW.PinState_INA = GPIO_PIN_RESET;
+		LeftW.PinState_INB = GPIO_PIN_SET;
+		LeftW.Direction = WH_CW;
+	};
+	if (LeftW.Target_speed < 0) {
+		LeftW.PinState_INA = GPIO_PIN_SET;
+		LeftW.PinState_INB = GPIO_PIN_RESET;
+		LeftW.Direction = WH_CCW;
+	};
+
+	if (LeftW.Target_speed == 0) {
+		LeftW.PinState_INA = GPIO_PIN_RESET;
+		LeftW.PinState_INB = GPIO_PIN_RESET;
+		LeftW.Direction = WH_STOP;
+	};
+	HAL_GPIO_WritePin(LeftW.GPIOx_INA, LeftW.GPIO_Pin_INA, LeftW.PinState_INA);
+	HAL_GPIO_WritePin(LeftW.GPIOx_INB, LeftW.GPIO_Pin_INB, LeftW.PinState_INB);
+
+	__HAL_TIM_SET_COMPARE(&LeftW.htim, LeftW.PWM_Channel, LeftW.PWM_Value);
+
+	if (RightW.Target_speed > 0) {
+		RightW.PinState_INA = GPIO_PIN_SET;
+		RightW.PinState_INB = GPIO_PIN_RESET;
+		RightW.Direction = WH_CW;
+	};
+	if (RightW.Target_speed < 0) {
+		RightW.PinState_INA = GPIO_PIN_RESET;
+		RightW.PinState_INB = GPIO_PIN_SET;
+		RightW.Direction = WH_CCW;
+	};
+
+	if (RightW.Target_speed == 0) {
+		RightW.PinState_INA = GPIO_PIN_RESET;
+		RightW.PinState_INB = GPIO_PIN_RESET;
+		RightW.PWM_Value = 0;
+		RightW.Direction = WH_STOP;
+
+	};
+
+	HAL_GPIO_WritePin(RightW.GPIOx_INA, RightW.GPIO_Pin_INA,
+			RightW.PinState_INA);
+	HAL_GPIO_WritePin(RightW.GPIOx_INB, RightW.GPIO_Pin_INB,
+			RightW.PinState_INB);
+
+	__HAL_TIM_SET_COMPARE(&RightW.htim, RightW.PWM_Channel, RightW.PWM_Value);
 
 }
+
+
+
 
 /* USER CODE END 0 */
 
@@ -308,7 +348,7 @@ int main(void)
 		 SetDir_Speed(speedr);
 	}
 
-      HAL_Delay(100);
+
 
 
     /* USER CODE END WHILE */
@@ -772,14 +812,12 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef* htim)
   for (uint8_t i=1;i<MAX_ANGLE_WHEEL_ARRAY;i++) {
     LeftW.angle[i-1]    = LeftW.angle[i];
     RightW.angle[i-1]   = RightW.angle[i];
+
     LeftW.time_ms_wheel[i-1] = LeftW.time_ms_wheel[i] ;
     RightW.time_ms_wheel[i-1] = RightW.time_ms_wheel[i] ;
 
     LeftW.speed[i-1] = LeftW.speed[i];
     RightW.speed[i-1] = RightW.speed[i];
-
-    LeftW.quadrant[i-1] = LeftW.quadrant[i];
-    RightW.quadrant[i-1] = RightW.quadrant[i];
 
   };
 
@@ -789,147 +827,62 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef* htim)
   LeftW.angle[MAX_ANGLE_WHEEL_ARRAY-1]   = HAL_ReadAS5600_I2Cx(LeftW.hi2c);
   RightW.angle[MAX_ANGLE_WHEEL_ARRAY-1]  = HAL_ReadAS5600_I2Cx(RightW.hi2c);
 
+  float tmplspeed = -((1000*(LeftW.angle[MAX_ANGLE_WHEEL_ARRAY-1]  - LeftW.angle[MAX_ANGLE_WHEEL_ARRAY-2]))  / (LeftW.time_ms_wheel[MAX_ANGLE_WHEEL_ARRAY-1] - LeftW.time_ms_wheel[MAX_ANGLE_WHEEL_ARRAY-2]))/360*60;
+  float tmprspeed = ((1000*(RightW.angle[MAX_ANGLE_WHEEL_ARRAY-1] - RightW.angle[MAX_ANGLE_WHEEL_ARRAY-2])) / (RightW.time_ms_wheel[MAX_ANGLE_WHEEL_ARRAY-1] - RightW.time_ms_wheel[MAX_ANGLE_WHEEL_ARRAY-2]))/360*60;
 
-  LeftW.quadrant[MAX_ANGLE_WHEEL_ARRAY-1] =   (int) (LeftW.angle[MAX_ANGLE_WHEEL_ARRAY-1] / 90);
-  RightW.quadrant[MAX_ANGLE_WHEEL_ARRAY-1] = (int)(RightW.angle[MAX_ANGLE_WHEEL_ARRAY-1]/90);
+  if ((tmplspeed*LeftW.speed[MAX_ANGLE_WHEEL_ARRAY-2])>=0) {
+	  for (uint8_t i=1;i<MAX_ANGLE_WHEEL_ARRAY;i++) {
+	    LeftW.speed[i-1] =  LeftW.speed[i];
+	  };
 
-
-  if (RightW.averspeed>=0) {
-	if ((RightW.quadrant[MAX_ANGLE_WHEEL_ARRAY-2]==3) && (RightW.quadrant[MAX_ANGLE_WHEEL_ARRAY-1]==0)) {
-      RightW.speed[MAX_ANGLE_WHEEL_ARRAY-1] = ((1000*((RightW.angle[MAX_ANGLE_WHEEL_ARRAY-1]+360) - RightW.angle[MAX_ANGLE_WHEEL_ARRAY-2])) / (RightW.time_ms_wheel[MAX_ANGLE_WHEEL_ARRAY-1] - RightW.time_ms_wheel[MAX_ANGLE_WHEEL_ARRAY-2]))/360*60;
-      RightW.turns++;
-    } else {
-      RightW.speed[MAX_ANGLE_WHEEL_ARRAY-1] = ((1000*(RightW.angle[MAX_ANGLE_WHEEL_ARRAY-1] - RightW.angle[MAX_ANGLE_WHEEL_ARRAY-2])) / (RightW.time_ms_wheel[MAX_ANGLE_WHEEL_ARRAY-1] - RightW.time_ms_wheel[MAX_ANGLE_WHEEL_ARRAY-2]))/360*60;
-    };
+	if (fabsf(tmplspeed)<1) {tmplspeed=0;};
+    LeftW.speed[MAX_ANGLE_WHEEL_ARRAY-1] = tmplspeed ;
   };
 
-   if (RightW.averspeed<0) {
-	if ((RightW.quadrant[MAX_ANGLE_WHEEL_ARRAY-2]==0) && (RightW.quadrant[MAX_ANGLE_WHEEL_ARRAY-1]==3)) {
-      RightW.speed[MAX_ANGLE_WHEEL_ARRAY-1] = -((1000*(((360-RightW.angle[MAX_ANGLE_WHEEL_ARRAY-1])) + RightW.angle[MAX_ANGLE_WHEEL_ARRAY-2])) / (RightW.time_ms_wheel[MAX_ANGLE_WHEEL_ARRAY-1] - RightW.time_ms_wheel[MAX_ANGLE_WHEEL_ARRAY-2]))/360*60;
-      RightW.turns++;
-    } else {
-      RightW.speed[MAX_ANGLE_WHEEL_ARRAY-1] = ((1000*(RightW.angle[MAX_ANGLE_WHEEL_ARRAY-1] - RightW.angle[MAX_ANGLE_WHEEL_ARRAY-2])) / (RightW.time_ms_wheel[MAX_ANGLE_WHEEL_ARRAY-1] - RightW.time_ms_wheel[MAX_ANGLE_WHEEL_ARRAY-2]))/360*60;
-    };
+  if ((tmprspeed*RightW.speed[MAX_ANGLE_WHEEL_ARRAY-2])>=0) {
+	  for (uint8_t i=1;i<MAX_ANGLE_WHEEL_ARRAY;i++) {
+	    RightW.speed[i-1] = RightW.speed[i];
+	  };
+	if (fabsf(tmprspeed)<1) {tmprspeed=0;};
+    RightW.speed[MAX_ANGLE_WHEEL_ARRAY-1] = tmprspeed ;
   };
-
-
-
-   if (LeftW.averspeed>=0) {
- 	if ((LeftW.quadrant[MAX_ANGLE_WHEEL_ARRAY-2]==3) && (LeftW.quadrant[MAX_ANGLE_WHEEL_ARRAY-1]==0)) {
-       LeftW.speed[MAX_ANGLE_WHEEL_ARRAY-1] = ((1000*((LeftW.angle[MAX_ANGLE_WHEEL_ARRAY-1]+360) - LeftW.angle[MAX_ANGLE_WHEEL_ARRAY-2])) / (LeftW.time_ms_wheel[MAX_ANGLE_WHEEL_ARRAY-1] - LeftW.time_ms_wheel[MAX_ANGLE_WHEEL_ARRAY-2]))/360*60;
-       LeftW.turns++;
-     } else {
-       LeftW.speed[MAX_ANGLE_WHEEL_ARRAY-1] = ((1000*(LeftW.angle[MAX_ANGLE_WHEEL_ARRAY-1] - LeftW.angle[MAX_ANGLE_WHEEL_ARRAY-2])) / (LeftW.time_ms_wheel[MAX_ANGLE_WHEEL_ARRAY-1] - LeftW.time_ms_wheel[MAX_ANGLE_WHEEL_ARRAY-2]))/360*60;
-     };
-   };
-
-    if (LeftW.averspeed<0) {
- 	if ((LeftW.quadrant[MAX_ANGLE_WHEEL_ARRAY-2]==0) && (LeftW.quadrant[MAX_ANGLE_WHEEL_ARRAY-1]==3)) {
-       LeftW.speed[MAX_ANGLE_WHEEL_ARRAY-1] = -((1000*(((360-LeftW.angle[MAX_ANGLE_WHEEL_ARRAY-1])) + LeftW.angle[MAX_ANGLE_WHEEL_ARRAY-2])) / (LeftW.time_ms_wheel[MAX_ANGLE_WHEEL_ARRAY-1] - LeftW.time_ms_wheel[MAX_ANGLE_WHEEL_ARRAY-2]))/360*60;
-       LeftW.turns++;
-     } else {
-       LeftW.speed[MAX_ANGLE_WHEEL_ARRAY-1] = ((1000*(LeftW.angle[MAX_ANGLE_WHEEL_ARRAY-1] - LeftW.angle[MAX_ANGLE_WHEEL_ARRAY-2])) / (LeftW.time_ms_wheel[MAX_ANGLE_WHEEL_ARRAY-1] - LeftW.time_ms_wheel[MAX_ANGLE_WHEEL_ARRAY-2]))/360*60;
-     };
-   };
-
 
 
   LeftW.averspeed = 0;
   RightW.averspeed = 0;
 
   for (uint8_t i=0;i<MAX_ANGLE_WHEEL_ARRAY-2;i++) {
-	LeftW.averspeed  = LeftW.averspeed + LeftW.speed[i];
+	LeftW.averspeed  = LeftW.averspeed  + LeftW.speed[i];
 	RightW.averspeed = RightW.averspeed + RightW.speed[i];
   };
 
   RightW.averspeed = RightW.averspeed  / (MAX_ANGLE_WHEEL_ARRAY-2);
-  LeftW.averspeed = LeftW.averspeed / (MAX_ANGLE_WHEEL_ARRAY-2);
+  LeftW.averspeed  = LeftW.averspeed   / (MAX_ANGLE_WHEEL_ARRAY-2);
 
 
 
+  if (RightW.averspeed>7) {
+  if (RightW.averspeed-LeftW.averspeed<0) {
+	  RightW.PWM_Value = RightW.PWM_Value + 5;
+		__HAL_TIM_SET_COMPARE(&RightW.htim, RightW.PWM_Channel, RightW.PWM_Value);
 
+		  LeftW.PWM_Value = LeftW.PWM_Value - 5;
+			__HAL_TIM_SET_COMPARE(&LeftW.htim, LeftW.PWM_Channel, LeftW.PWM_Value);
 
+  } else {
 
+	  RightW.PWM_Value = RightW.PWM_Value - 5;
+		__HAL_TIM_SET_COMPARE(&RightW.htim, RightW.PWM_Channel, RightW.PWM_Value);
 
-  if  ((RightW.time_ms_wheel[MAX_ANGLE_WHEEL_ARRAY-1] - RightW.speed_priortime) >  1000) {
+		  LeftW.PWM_Value = LeftW.PWM_Value + 5;
+			__HAL_TIM_SET_COMPARE(&LeftW.htim, LeftW.PWM_Channel, LeftW.PWM_Value);
 
-	    if (RightW.Target_speed>0) {
-		  RightW.PinState_INA = GPIO_PIN_SET;
-		  RightW.PinState_INB = GPIO_PIN_RESET;
-		  RightW.Direction = WH_CW;
-	    };
-		if (RightW.Target_speed<0) {
-		  RightW.PinState_INA = GPIO_PIN_RESET;
-		  RightW.PinState_INB = GPIO_PIN_SET;
-		  RightW.Direction = WH_CCW;
-		};
-
-		if (RightW.Target_speed==0) {
-		  RightW.PinState_INA = GPIO_PIN_RESET;
-		  RightW.PinState_INB = GPIO_PIN_RESET;
-		  RightW.PWM_Value = 0;
-		  RightW.Direction = WH_STOP;
-		};
-
-
-	HAL_GPIO_WritePin(RightW.GPIOx_INA,RightW.GPIO_Pin_INA, RightW.PinState_INA);
-	HAL_GPIO_WritePin(RightW.GPIOx_INB,RightW.GPIO_Pin_INB, RightW.PinState_INB);
-
-	RightW.delta_speed = fabsf(RightW.Target_speed) - fabsf(RightW.averspeed);
-
-	if (fabsf(RightW.delta_speed)>0.1) {
-	  RightW.delta_PWM = (int)(RightW.delta_speed * RightW.PID);
-  	  RightW.PWM_Value =  RightW.PWM_Value + RightW.delta_PWM  ;
-
-      if (RightW.PWM_Value > 50000) {RightW.PWM_Value = 50000;};
-      if  (RightW.PWM_Value < 00) {RightW.PWM_Value = 0; };
-
-      __HAL_TIM_SET_COMPARE(&RightW.htim, RightW.PWM_Channel, RightW.PWM_Value );
-	};
-
-    RightW.speed_priortime  = RightW.time_ms_wheel[MAX_ANGLE_WHEEL_ARRAY-1];
+  };
   };
 
 
 
 
-  if  ((LeftW.time_ms_wheel[MAX_ANGLE_WHEEL_ARRAY-1] - LeftW.speed_priortime) >  1000) {
-
-    if (LeftW.Target_speed>0) {
-	  LeftW.PinState_INA = GPIO_PIN_SET;
-	  LeftW.PinState_INB = GPIO_PIN_RESET;
-	  LeftW.Direction = WH_CW;
-    };
-	if (LeftW.Target_speed<0) {
-	  LeftW.PinState_INA = GPIO_PIN_RESET;
-	  LeftW.PinState_INB = GPIO_PIN_SET;
-	  LeftW.Direction = WH_CCW;
-	};
-
-	if (LeftW.Target_speed==0) {
-	  LeftW.PinState_INA = GPIO_PIN_RESET;
-	  LeftW.PinState_INB = GPIO_PIN_RESET;
-	  LeftW.Direction = WH_STOP;
-	};
-
-
-	HAL_GPIO_WritePin(LeftW.GPIOx_INA,LeftW.GPIO_Pin_INA, LeftW.PinState_INA);
-	HAL_GPIO_WritePin(LeftW.GPIOx_INB,LeftW.GPIO_Pin_INB, LeftW.PinState_INB);
-
-	LeftW.delta_speed = fabsf(LeftW.Target_speed) - fabsf(LeftW.averspeed);
-
-	if (fabsf(LeftW.delta_speed)>0.01) {
-	  LeftW.delta_PWM = (int)(LeftW.delta_speed * LeftW.PID);
-  	  LeftW.PWM_Value =  LeftW.PWM_Value + LeftW.delta_PWM  ;
-
-      if (LeftW.PWM_Value > 50000) {LeftW.PWM_Value = 50000;};
-      if  (LeftW.PWM_Value < 00) {LeftW.PWM_Value = 0; };
-
-      __HAL_TIM_SET_COMPARE(&LeftW.htim, LeftW.PWM_Channel, LeftW.PWM_Value );
-	};
-
-    LeftW.speed_priortime  = LeftW.time_ms_wheel[MAX_ANGLE_WHEEL_ARRAY-1];
-  };
 
 
 }
