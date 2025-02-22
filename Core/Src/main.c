@@ -18,10 +18,11 @@
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
+#include "cmsis_os.h"
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-
+#include "task.h"
 #include <string.h>
 #include "math.h"
 /* USER CODE END Includes */
@@ -98,6 +99,41 @@ TIM_HandleTypeDef htim2;
 
 UART_HandleTypeDef huart1;
 
+/* Definitions for defaultTask */
+osThreadId_t defaultTaskHandle;
+const osThreadAttr_t defaultTask_attributes = {
+  .name = "defaultTask",
+  .stack_size = 128 * 4,
+  .priority = (osPriority_t) osPriorityNormal,
+};
+/* Definitions for Task1ms */
+osThreadId_t Task1msHandle;
+const osThreadAttr_t Task1ms_attributes = {
+  .name = "Task1ms",
+  .stack_size = 128 * 4,
+  .priority = (osPriority_t) osPriorityNormal,
+};
+/* Definitions for Task10ms */
+osThreadId_t Task10msHandle;
+const osThreadAttr_t Task10ms_attributes = {
+  .name = "Task10ms",
+  .stack_size = 128 * 4,
+  .priority = (osPriority_t) osPriorityNormal,
+};
+/* Definitions for Task100ms */
+osThreadId_t Task100msHandle;
+const osThreadAttr_t Task100ms_attributes = {
+  .name = "Task100ms",
+  .stack_size = 128 * 4,
+  .priority = (osPriority_t) osPriorityNormal,
+};
+
+
+uint32_t task1msCnt = 0;
+uint32_t task10msCnt = 0;
+uint32_t task100msCnt = 0;
+
+
 /* USER CODE BEGIN PV */
 
 struct WheelData LeftW,RightW;
@@ -131,12 +167,22 @@ static void MX_USART1_UART_Init(void);
 static void MX_TIM2_Init(void);
 static void MX_TIM1_Init(void);
 static void MX_SPI2_Init(void);
+void StartDefaultTask(void *argument);
+void Task1msHandler(void *argument);
+void Task10msHandler(void *argument);
+void Task100msHandler(void *argument);
+
 /* USER CODE BEGIN PFP */
 
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+
+
+
+
+
 float HAL_ReadAS5600_I2Cx(I2C_HandleTypeDef hi2cX) // pulling 0.5 ms
 {
   uint8_t regData[2];
@@ -338,15 +384,57 @@ int main(void)
 
   /* USER CODE END 2 */
 
+  /* Init scheduler */
+  osKernelInitialize();
+
+  /* USER CODE BEGIN RTOS_MUTEX */
+  /* add mutexes, ... */
+  /* USER CODE END RTOS_MUTEX */
+
+  /* USER CODE BEGIN RTOS_SEMAPHORES */
+  /* add semaphores, ... */
+  /* USER CODE END RTOS_SEMAPHORES */
+
+  /* USER CODE BEGIN RTOS_TIMERS */
+  /* start timers, add new ones, ... */
+  /* USER CODE END RTOS_TIMERS */
+
+  /* USER CODE BEGIN RTOS_QUEUES */
+  /* add queues, ... */
+  /* USER CODE END RTOS_QUEUES */
+
+  /* Create the thread(s) */
+  /* creation of defaultTask */
+  defaultTaskHandle = osThreadNew(StartDefaultTask, NULL, &defaultTask_attributes);
+
+  /* creation of Task1ms */
+  Task1msHandle = osThreadNew(Task1msHandler, NULL, &Task1ms_attributes);
+
+  /* creation of Task10ms */
+  Task10msHandle = osThreadNew(Task10msHandler, NULL, &Task10ms_attributes);
+
+  /* creation of Task100ms */
+  Task100msHandle = osThreadNew(Task100msHandler, NULL, &Task100ms_attributes);
+
+  /* USER CODE BEGIN RTOS_THREADS */
+  /* add threads, ... */
+  /* USER CODE END RTOS_THREADS */
+
+  /* USER CODE BEGIN RTOS_EVENTS */
+  /* add events, ... */
+  /* USER CODE END RTOS_EVENTS */
+
+  /* Start scheduler */
+  osKernelStart();
+
+  /* We should never get here as control is now taken by the scheduler */
+
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
   while (1)
   {
 
-	if (newval==1) {
-		newval = 0;
-		 SetDir_Speed(speedr);
-	}
+
 
 
 
@@ -734,7 +822,7 @@ static void MX_DMA_Init(void)
 
   /* DMA interrupt init */
   /* DMA2_Stream0_IRQn interrupt configuration */
-  HAL_NVIC_SetPriority(DMA2_Stream0_IRQn, 0, 0);
+  HAL_NVIC_SetPriority(DMA2_Stream0_IRQn, 5, 0);
   HAL_NVIC_EnableIRQ(DMA2_Stream0_IRQn);
 
 }
@@ -804,86 +892,105 @@ static void MX_GPIO_Init(void)
 
 /* USER CODE BEGIN 4 */
 
-void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef* htim)
-{
-  HAL_GPIO_TogglePin(GPIOC, GPIO_PIN_13);
+void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
 
+	if (htim->Instance == TIM11) {
+		HAL_IncTick();
+		return;
+	}
 
-  for (uint8_t i=1;i<MAX_ANGLE_WHEEL_ARRAY;i++) {
-    LeftW.angle[i-1]    = LeftW.angle[i];
-    RightW.angle[i-1]   = RightW.angle[i];
+	if (htim->Instance == TIM2) {
+		HAL_GPIO_TogglePin(GPIOC, GPIO_PIN_13);
 
-    LeftW.time_ms_wheel[i-1] = LeftW.time_ms_wheel[i] ;
-    RightW.time_ms_wheel[i-1] = RightW.time_ms_wheel[i] ;
+		for (uint8_t i = 1; i < MAX_ANGLE_WHEEL_ARRAY; i++) {
+			LeftW.angle[i - 1] = LeftW.angle[i];
+			RightW.angle[i - 1] = RightW.angle[i];
 
-    LeftW.speed[i-1] = LeftW.speed[i];
-    RightW.speed[i-1] = RightW.speed[i];
+			LeftW.time_ms_wheel[i - 1] = LeftW.time_ms_wheel[i];
+			RightW.time_ms_wheel[i - 1] = RightW.time_ms_wheel[i];
 
-  };
+			LeftW.speed[i - 1] = LeftW.speed[i];
+			RightW.speed[i - 1] = RightW.speed[i];
 
-  RightW.time_ms_wheel[MAX_ANGLE_WHEEL_ARRAY-1] = HAL_GetTick();
-  LeftW.time_ms_wheel[MAX_ANGLE_WHEEL_ARRAY-1]  = HAL_GetTick();
+		};
 
-  LeftW.angle[MAX_ANGLE_WHEEL_ARRAY-1]   = HAL_ReadAS5600_I2Cx(LeftW.hi2c);
-  RightW.angle[MAX_ANGLE_WHEEL_ARRAY-1]  = HAL_ReadAS5600_I2Cx(RightW.hi2c);
+		RightW.time_ms_wheel[MAX_ANGLE_WHEEL_ARRAY - 1] = HAL_GetTick();
+		LeftW.time_ms_wheel[MAX_ANGLE_WHEEL_ARRAY - 1] = HAL_GetTick();
 
-  float tmplspeed = -((1000*(LeftW.angle[MAX_ANGLE_WHEEL_ARRAY-1]  - LeftW.angle[MAX_ANGLE_WHEEL_ARRAY-2]))  / (LeftW.time_ms_wheel[MAX_ANGLE_WHEEL_ARRAY-1] - LeftW.time_ms_wheel[MAX_ANGLE_WHEEL_ARRAY-2]))/360*60;
-  float tmprspeed = ((1000*(RightW.angle[MAX_ANGLE_WHEEL_ARRAY-1] - RightW.angle[MAX_ANGLE_WHEEL_ARRAY-2])) / (RightW.time_ms_wheel[MAX_ANGLE_WHEEL_ARRAY-1] - RightW.time_ms_wheel[MAX_ANGLE_WHEEL_ARRAY-2]))/360*60;
+		LeftW.angle[MAX_ANGLE_WHEEL_ARRAY - 1] = HAL_ReadAS5600_I2Cx(
+				LeftW.hi2c);
+		RightW.angle[MAX_ANGLE_WHEEL_ARRAY - 1] = HAL_ReadAS5600_I2Cx(
+				RightW.hi2c);
 
-  if ((tmplspeed*LeftW.speed[MAX_ANGLE_WHEEL_ARRAY-2])>=0) {
-	  for (uint8_t i=1;i<MAX_ANGLE_WHEEL_ARRAY;i++) {
-	    LeftW.speed[i-1] =  LeftW.speed[i];
-	  };
+		float tmplspeed = -((1000
+				* (LeftW.angle[MAX_ANGLE_WHEEL_ARRAY - 1]
+						- LeftW.angle[MAX_ANGLE_WHEEL_ARRAY - 2]))
+				/ (LeftW.time_ms_wheel[MAX_ANGLE_WHEEL_ARRAY - 1]
+						- LeftW.time_ms_wheel[MAX_ANGLE_WHEEL_ARRAY - 2])) / 360
+				* 60;
+		float tmprspeed = ((1000
+				* (RightW.angle[MAX_ANGLE_WHEEL_ARRAY - 1]
+						- RightW.angle[MAX_ANGLE_WHEEL_ARRAY - 2]))
+				/ (RightW.time_ms_wheel[MAX_ANGLE_WHEEL_ARRAY - 1]
+						- RightW.time_ms_wheel[MAX_ANGLE_WHEEL_ARRAY - 2]))
+				/ 360 * 60;
 
-	if (fabsf(tmplspeed)<1) {tmplspeed=0;};
-    LeftW.speed[MAX_ANGLE_WHEEL_ARRAY-1] = tmplspeed ;
-  };
+		if ((tmplspeed * LeftW.speed[MAX_ANGLE_WHEEL_ARRAY - 2]) >= 0) {
+			for (uint8_t i = 1; i < MAX_ANGLE_WHEEL_ARRAY; i++) {
+				LeftW.speed[i - 1] = LeftW.speed[i];
+			};
 
-  if ((tmprspeed*RightW.speed[MAX_ANGLE_WHEEL_ARRAY-2])>=0) {
-	  for (uint8_t i=1;i<MAX_ANGLE_WHEEL_ARRAY;i++) {
-	    RightW.speed[i-1] = RightW.speed[i];
-	  };
-	if (fabsf(tmprspeed)<1) {tmprspeed=0;};
-    RightW.speed[MAX_ANGLE_WHEEL_ARRAY-1] = tmprspeed ;
-  };
+			if (fabsf(tmplspeed) < 1) {
+				tmplspeed = 0;
+			};
+			LeftW.speed[MAX_ANGLE_WHEEL_ARRAY - 1] = tmplspeed;
+		};
 
+		if ((tmprspeed * RightW.speed[MAX_ANGLE_WHEEL_ARRAY - 2]) >= 0) {
+			for (uint8_t i = 1; i < MAX_ANGLE_WHEEL_ARRAY; i++) {
+				RightW.speed[i - 1] = RightW.speed[i];
+			};
+			if (fabsf(tmprspeed) < 1) {
+				tmprspeed = 0;
+			};
+			RightW.speed[MAX_ANGLE_WHEEL_ARRAY - 1] = tmprspeed;
+		};
 
-  LeftW.averspeed = 0;
-  RightW.averspeed = 0;
+		LeftW.averspeed = 0;
+		RightW.averspeed = 0;
 
-  for (uint8_t i=0;i<MAX_ANGLE_WHEEL_ARRAY-2;i++) {
-	LeftW.averspeed  = LeftW.averspeed  + LeftW.speed[i];
-	RightW.averspeed = RightW.averspeed + RightW.speed[i];
-  };
+		for (uint8_t i = 0; i < MAX_ANGLE_WHEEL_ARRAY - 2; i++) {
+			LeftW.averspeed = LeftW.averspeed + LeftW.speed[i];
+			RightW.averspeed = RightW.averspeed + RightW.speed[i];
+		};
 
-  RightW.averspeed = RightW.averspeed  / (MAX_ANGLE_WHEEL_ARRAY-2);
-  LeftW.averspeed  = LeftW.averspeed   / (MAX_ANGLE_WHEEL_ARRAY-2);
+		RightW.averspeed = RightW.averspeed / (MAX_ANGLE_WHEEL_ARRAY - 2);
+		LeftW.averspeed = LeftW.averspeed / (MAX_ANGLE_WHEEL_ARRAY - 2);
 
+		if (RightW.averspeed > 7) {
+			if (RightW.averspeed - LeftW.averspeed < 0) {
+				RightW.PWM_Value = RightW.PWM_Value + 5;
+				__HAL_TIM_SET_COMPARE(&RightW.htim, RightW.PWM_Channel,
+						RightW.PWM_Value);
 
+				LeftW.PWM_Value = LeftW.PWM_Value - 5;
+				__HAL_TIM_SET_COMPARE(&LeftW.htim, LeftW.PWM_Channel,
+						LeftW.PWM_Value);
 
-  if (RightW.averspeed>7) {
-  if (RightW.averspeed-LeftW.averspeed<0) {
-	  RightW.PWM_Value = RightW.PWM_Value + 5;
-		__HAL_TIM_SET_COMPARE(&RightW.htim, RightW.PWM_Channel, RightW.PWM_Value);
+			} else {
 
-		  LeftW.PWM_Value = LeftW.PWM_Value - 5;
-			__HAL_TIM_SET_COMPARE(&LeftW.htim, LeftW.PWM_Channel, LeftW.PWM_Value);
+				RightW.PWM_Value = RightW.PWM_Value - 5;
+				__HAL_TIM_SET_COMPARE(&RightW.htim, RightW.PWM_Channel,
+						RightW.PWM_Value);
 
-  } else {
+				LeftW.PWM_Value = LeftW.PWM_Value + 5;
+				__HAL_TIM_SET_COMPARE(&LeftW.htim, LeftW.PWM_Channel,
+						LeftW.PWM_Value);
 
-	  RightW.PWM_Value = RightW.PWM_Value - 5;
-		__HAL_TIM_SET_COMPARE(&RightW.htim, RightW.PWM_Channel, RightW.PWM_Value);
+			};
+		};
 
-		  LeftW.PWM_Value = LeftW.PWM_Value + 5;
-			__HAL_TIM_SET_COMPARE(&LeftW.htim, LeftW.PWM_Channel, LeftW.PWM_Value);
-
-  };
-  };
-
-
-
-
-
+	}
 
 }
 
@@ -891,6 +998,115 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef* htim)
 
 
 /* USER CODE END 4 */
+
+/* USER CODE BEGIN Header_StartDefaultTask */
+/**
+  * @brief  Function implementing the defaultTask thread.
+  * @param  argument: Not used
+  * @retval None
+  */
+/* USER CODE END Header_StartDefaultTask */
+void StartDefaultTask(void *argument)
+{
+  /* USER CODE BEGIN 5 */
+  /* Infinite loop */
+  for(;;)
+  {
+    osDelay(1);
+  }
+  /* USER CODE END 5 */
+}
+
+/* USER CODE BEGIN Header_Task1msHandler */
+/**
+* @brief Function implementing the Task1ms thread.
+* @param argument: Not used
+* @retval None
+*/
+/* USER CODE END Header_Task1msHandler */
+void Task1msHandler(void *argument)
+{
+    /* USER CODE BEGIN Task1msHandler */
+    TickType_t xLastWakeTime;
+    const TickType_t xFrequency = 1  / portTICK_PERIOD_MS;
+    xLastWakeTime = xTaskGetTickCount();
+    /* Infinite loop */
+    for(;;)
+    {
+        // Add code here
+        task1msCnt++;
+
+        vTaskDelayUntil(&xLastWakeTime, xFrequency);
+    }
+    /* USER CODE END Task10msHandler */
+}
+
+/* USER CODE BEGIN Header_Task10msHandler */
+/**
+* @brief Function implementing the Task10ms thread.
+* @param argument: Not used
+* @retval None
+*/
+/* USER CODE END Header_Task10msHandler */
+void Task10msHandler(void *argument)
+{
+    /* USER CODE BEGIN Task10msHandler */
+    TickType_t xLastWakeTime;
+    const TickType_t xFrequency = 10 / portTICK_PERIOD_MS;
+    xLastWakeTime = xTaskGetTickCount();
+    /* Infinite loop */
+    for(;;)
+    {
+        // Add code here
+
+        task10msCnt++;
+
+        vTaskDelayUntil(&xLastWakeTime, xFrequency);
+    }
+    /* USER CODE END Task10msHandler */
+}
+
+/* USER CODE BEGIN Header_Task100msHandler */
+/**
+* @brief Function implementing the Task100ms thread.
+* @param argument: Not used
+* @retval None
+*/
+/* USER CODE END Header_Task100msHandler */
+
+
+void Task100msHandler(void *argument)
+{
+    /* USER CODE BEGIN Task100msHandler */
+    TickType_t xLastWakeTime;
+    const TickType_t xFrequency = 100 / portTICK_PERIOD_MS;
+    xLastWakeTime = xTaskGetTickCount();
+    /* Infinite loop */
+    for(;;)
+    {
+        // Add code here
+        task100msCnt++;
+
+
+    	if (newval==1) {
+    		newval = 0;
+    		 SetDir_Speed(speedr);
+    	}
+
+        vTaskDelayUntil(&xLastWakeTime, xFrequency);
+    }
+    /* USER CODE END Task50msHandler */
+}
+
+/**
+  * @brief  Period elapsed callback in non blocking mode
+  * @note   This function is called  when TIM11 interrupt took place, inside
+  * HAL_TIM_IRQHandler(). It makes a direct call to HAL_IncTick() to increment
+  * a global variable "uwTick" used as application time base.
+  * @param  htim : TIM handle
+  * @retval None
+  */
+
 
 /**
   * @brief  This function is executed in case of error occurrence.
