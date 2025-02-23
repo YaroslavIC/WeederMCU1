@@ -1,3 +1,5 @@
+"./Core/Src/FreeRTOS_CLI.o"
+"./Core/Src/cli_app.o"
 "./Core/Src/freertos.o"
 "./Core/Src/main.o"
 "./Core/Src/stm32f4xx_hal_msp.o"
@@ -27,7 +29,6 @@
 "./Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_spi.o"
 "./Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_tim.o"
 "./Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_tim_ex.o"
-"./Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_uart.o"
 "./Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_ll_adc.o"
 "./Middlewares/Third_Party/FreeRTOS/Source/CMSIS_RTOS_V2/cmsis_os2.o"
 "./Middlewares/Third_Party/FreeRTOS/Source/croutine.o"

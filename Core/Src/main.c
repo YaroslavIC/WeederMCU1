@@ -22,6 +22,7 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
+#include "cli_app.h"
 #include "task.h"
 #include <string.h>
 #include "math.h"
@@ -29,7 +30,7 @@
 
 /* Private typedef -----------------------------------------------------------*/
 /* USER CODE BEGIN PTD */
-#define  MAX_ANGLE_WHEEL_ARRAY 10
+#define  MAX_ANGLE_WHEEL_ARRAY 20
 enum DirectionEnum {WH_CW, WH_CCW,WH_STOP};
 //MPU9250_t mpu9250;
 uint8_t isDeviceConnected = 0;
@@ -55,17 +56,17 @@ struct WheelData
 	double angle[MAX_ANGLE_WHEEL_ARRAY];
 	float speed[MAX_ANGLE_WHEEL_ARRAY];
 
-	float averspeed,turns_left,prior_quadrant,current_quadrant;
+	float averspeed;	//,turns_left,prior_quadrant,current_quadrant;
 	uint32_t PWM_Channel;
-	 int32_t PWM_Value;
-	uint32_t turns;
+	float PWM_Value,PID_value_P,PID_value_I;
 
-	uint32_t speed_priortime;
-	int32_t delta_PWM;
-	float delta_speed;
 
-	float PID;
-	uint32_t PWM[31];
+//	uint32_t speed_priortime;
+//	int32_t delta_PWM;
+	//float delta_speed;
+
+	float PID_P,PID_I,PID_D,PID_sum_I;
+ 	uint32_t PWM[31];
 
 };
 
@@ -97,8 +98,6 @@ SPI_HandleTypeDef hspi2;
 TIM_HandleTypeDef htim1;
 TIM_HandleTypeDef htim2;
 
-UART_HandleTypeDef huart1;
-
 /* Definitions for defaultTask */
 osThreadId_t defaultTaskHandle;
 const osThreadAttr_t defaultTask_attributes = {
@@ -127,16 +126,15 @@ const osThreadAttr_t Task100ms_attributes = {
   .stack_size = 128 * 4,
   .priority = (osPriority_t) osPriorityNormal,
 };
+/* USER CODE BEGIN PV */
 
+extern osThreadId_t cmdLineTaskHandle;
+
+struct WheelData LeftW,RightW;
 
 uint32_t task1msCnt = 0;
 uint32_t task10msCnt = 0;
 uint32_t task100msCnt = 0;
-
-
-/* USER CODE BEGIN PV */
-
-struct WheelData LeftW,RightW;
 
 //float angle_left[MAX_ANGLE_WHEEL_ARRAY],angle_right[MAX_ANGLE_WHEEL_ARRAY];
 //float speed_left[MAX_ANGLE_WHEEL_ARRAY],speed_right[MAX_ANGLE_WHEEL_ARRAY];
@@ -163,7 +161,6 @@ static void MX_DMA_Init(void);
 static void MX_I2C1_Init(void);
 static void MX_ADC1_Init(void);
 static void MX_I2C2_Init(void);
-static void MX_USART1_UART_Init(void);
 static void MX_TIM2_Init(void);
 static void MX_TIM1_Init(void);
 static void MX_SPI2_Init(void);
@@ -178,8 +175,6 @@ void Task100msHandler(void *argument);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
-
-
 
 
 
@@ -242,10 +237,12 @@ void Motor_Init(void)
 	  LeftW.PinState_INA    = GPIO_PIN_RESET;
 	  LeftW.PinState_INB    = GPIO_PIN_RESET;
 
-	  LeftW.PID = 100;
+	  LeftW.PID_P = 0.01;
+	  LeftW.PID_I = 0;
+	  LeftW.PID_D = 0;
 
 	  HAL_TIM_PWM_Start(&LeftW.htim, LeftW.PWM_Channel);
-	  __HAL_TIM_SET_COMPARE(&LeftW.htim, LeftW.PWM_Channel, LeftW.PWM_Value );
+	  __HAL_TIM_SET_COMPARE(&LeftW.htim, LeftW.PWM_Channel, 0 );
 
 
 	  RightW.hi2c = hi2c1;
@@ -259,19 +256,23 @@ void Motor_Init(void)
 	  RightW.PinState_INA   = GPIO_PIN_RESET;
 	  RightW.PinState_INB   = GPIO_PIN_RESET;
 
-	  RightW.PID = 100;
+	  RightW.PID_P = 0.01;
+	  RightW.PID_I = 0;
+	  RightW.PID_D = 0;
 
 	  HAL_TIM_PWM_Start(&RightW.htim, RightW.PWM_Channel);
-	  __HAL_TIM_SET_COMPARE(&RightW.htim, RightW.PWM_Channel, RightW.PWM_Value );
+	  __HAL_TIM_SET_COMPARE(&RightW.htim, RightW.PWM_Channel, 0 );
 }
 
 void SetDir_Speed(float Speed) {
 
+	if (Speed==LeftW.Target_speed) {return;};
+
 	RightW.Target_speed = Speed;
 	LeftW.Target_speed = Speed;
 
-	RightW.PWM_Value = (int32_t) Speed;
-	LeftW.PWM_Value = (int32_t) Speed;
+//	RightW.PWM_Value = (int32_t) 5000;
+//	LeftW.PWM_Value = (int32_t) 5000;
 
 	if (LeftW.Target_speed > 0) {
 		LeftW.PinState_INA = GPIO_PIN_RESET;
@@ -360,11 +361,13 @@ int main(void)
   MX_I2C1_Init();
   MX_ADC1_Init();
   MX_I2C2_Init();
-  MX_USART1_UART_Init();
   MX_TIM2_Init();
   MX_TIM1_Init();
   MX_SPI2_Init();
   /* USER CODE BEGIN 2 */
+
+
+
 
 
   if (HAL_TIM_Base_Start_IT(&htim2) != HAL_OK)
@@ -779,39 +782,6 @@ static void MX_TIM2_Init(void)
 }
 
 /**
-  * @brief USART1 Initialization Function
-  * @param None
-  * @retval None
-  */
-static void MX_USART1_UART_Init(void)
-{
-
-  /* USER CODE BEGIN USART1_Init 0 */
-
-  /* USER CODE END USART1_Init 0 */
-
-  /* USER CODE BEGIN USART1_Init 1 */
-
-  /* USER CODE END USART1_Init 1 */
-  huart1.Instance = USART1;
-  huart1.Init.BaudRate = 115200;
-  huart1.Init.WordLength = UART_WORDLENGTH_8B;
-  huart1.Init.StopBits = UART_STOPBITS_1;
-  huart1.Init.Parity = UART_PARITY_NONE;
-  huart1.Init.Mode = UART_MODE_TX_RX;
-  huart1.Init.HwFlowCtl = UART_HWCONTROL_NONE;
-  huart1.Init.OverSampling = UART_OVERSAMPLING_16;
-  if (HAL_UART_Init(&huart1) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  /* USER CODE BEGIN USART1_Init 2 */
-
-  /* USER CODE END USART1_Init 2 */
-
-}
-
-/**
   * Enable DMA controller clock
   */
 static void MX_DMA_Init(void)
@@ -892,111 +862,6 @@ static void MX_GPIO_Init(void)
 
 /* USER CODE BEGIN 4 */
 
-void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
-
-	if (htim->Instance == TIM11) {
-		HAL_IncTick();
-		return;
-	}
-
-	if (htim->Instance == TIM2) {
-		HAL_GPIO_TogglePin(GPIOC, GPIO_PIN_13);
-
-		for (uint8_t i = 1; i < MAX_ANGLE_WHEEL_ARRAY; i++) {
-			LeftW.angle[i - 1] = LeftW.angle[i];
-			RightW.angle[i - 1] = RightW.angle[i];
-
-			LeftW.time_ms_wheel[i - 1] = LeftW.time_ms_wheel[i];
-			RightW.time_ms_wheel[i - 1] = RightW.time_ms_wheel[i];
-
-			LeftW.speed[i - 1] = LeftW.speed[i];
-			RightW.speed[i - 1] = RightW.speed[i];
-
-		};
-
-		RightW.time_ms_wheel[MAX_ANGLE_WHEEL_ARRAY - 1] = HAL_GetTick();
-		LeftW.time_ms_wheel[MAX_ANGLE_WHEEL_ARRAY - 1] = HAL_GetTick();
-
-		LeftW.angle[MAX_ANGLE_WHEEL_ARRAY - 1] = HAL_ReadAS5600_I2Cx(
-				LeftW.hi2c);
-		RightW.angle[MAX_ANGLE_WHEEL_ARRAY - 1] = HAL_ReadAS5600_I2Cx(
-				RightW.hi2c);
-
-		float tmplspeed = -((1000
-				* (LeftW.angle[MAX_ANGLE_WHEEL_ARRAY - 1]
-						- LeftW.angle[MAX_ANGLE_WHEEL_ARRAY - 2]))
-				/ (LeftW.time_ms_wheel[MAX_ANGLE_WHEEL_ARRAY - 1]
-						- LeftW.time_ms_wheel[MAX_ANGLE_WHEEL_ARRAY - 2])) / 360
-				* 60;
-		float tmprspeed = ((1000
-				* (RightW.angle[MAX_ANGLE_WHEEL_ARRAY - 1]
-						- RightW.angle[MAX_ANGLE_WHEEL_ARRAY - 2]))
-				/ (RightW.time_ms_wheel[MAX_ANGLE_WHEEL_ARRAY - 1]
-						- RightW.time_ms_wheel[MAX_ANGLE_WHEEL_ARRAY - 2]))
-				/ 360 * 60;
-
-		if ((tmplspeed * LeftW.speed[MAX_ANGLE_WHEEL_ARRAY - 2]) >= 0) {
-			for (uint8_t i = 1; i < MAX_ANGLE_WHEEL_ARRAY; i++) {
-				LeftW.speed[i - 1] = LeftW.speed[i];
-			};
-
-			if (fabsf(tmplspeed) < 1) {
-				tmplspeed = 0;
-			};
-			LeftW.speed[MAX_ANGLE_WHEEL_ARRAY - 1] = tmplspeed;
-		};
-
-		if ((tmprspeed * RightW.speed[MAX_ANGLE_WHEEL_ARRAY - 2]) >= 0) {
-			for (uint8_t i = 1; i < MAX_ANGLE_WHEEL_ARRAY; i++) {
-				RightW.speed[i - 1] = RightW.speed[i];
-			};
-			if (fabsf(tmprspeed) < 1) {
-				tmprspeed = 0;
-			};
-			RightW.speed[MAX_ANGLE_WHEEL_ARRAY - 1] = tmprspeed;
-		};
-
-		LeftW.averspeed = 0;
-		RightW.averspeed = 0;
-
-		for (uint8_t i = 0; i < MAX_ANGLE_WHEEL_ARRAY - 2; i++) {
-			LeftW.averspeed = LeftW.averspeed + LeftW.speed[i];
-			RightW.averspeed = RightW.averspeed + RightW.speed[i];
-		};
-
-		RightW.averspeed = RightW.averspeed / (MAX_ANGLE_WHEEL_ARRAY - 2);
-		LeftW.averspeed = LeftW.averspeed / (MAX_ANGLE_WHEEL_ARRAY - 2);
-
-		if (RightW.averspeed > 7) {
-			if (RightW.averspeed - LeftW.averspeed < 0) {
-				RightW.PWM_Value = RightW.PWM_Value + 5;
-				__HAL_TIM_SET_COMPARE(&RightW.htim, RightW.PWM_Channel,
-						RightW.PWM_Value);
-
-				LeftW.PWM_Value = LeftW.PWM_Value - 5;
-				__HAL_TIM_SET_COMPARE(&LeftW.htim, LeftW.PWM_Channel,
-						LeftW.PWM_Value);
-
-			} else {
-
-				RightW.PWM_Value = RightW.PWM_Value - 5;
-				__HAL_TIM_SET_COMPARE(&RightW.htim, RightW.PWM_Channel,
-						RightW.PWM_Value);
-
-				LeftW.PWM_Value = LeftW.PWM_Value + 5;
-				__HAL_TIM_SET_COMPARE(&LeftW.htim, LeftW.PWM_Channel,
-						LeftW.PWM_Value);
-
-			};
-		};
-
-	}
-
-}
-
-
-
-
 /* USER CODE END 4 */
 
 /* USER CODE BEGIN Header_StartDefaultTask */
@@ -1026,19 +891,13 @@ void StartDefaultTask(void *argument)
 /* USER CODE END Header_Task1msHandler */
 void Task1msHandler(void *argument)
 {
-    /* USER CODE BEGIN Task1msHandler */
-    TickType_t xLastWakeTime;
-    const TickType_t xFrequency = 1  / portTICK_PERIOD_MS;
-    xLastWakeTime = xTaskGetTickCount();
-    /* Infinite loop */
-    for(;;)
-    {
-        // Add code here
-        task1msCnt++;
-
-        vTaskDelayUntil(&xLastWakeTime, xFrequency);
-    }
-    /* USER CODE END Task10msHandler */
+  /* USER CODE BEGIN Task1msHandler */
+  /* Infinite loop */
+  for(;;)
+  {
+	  task1msCnt++;
+  }
+  /* USER CODE END Task1msHandler */
 }
 
 /* USER CODE BEGIN Header_Task10msHandler */
@@ -1050,20 +909,14 @@ void Task1msHandler(void *argument)
 /* USER CODE END Header_Task10msHandler */
 void Task10msHandler(void *argument)
 {
-    /* USER CODE BEGIN Task10msHandler */
-    TickType_t xLastWakeTime;
-    const TickType_t xFrequency = 10 / portTICK_PERIOD_MS;
-    xLastWakeTime = xTaskGetTickCount();
-    /* Infinite loop */
-    for(;;)
-    {
-        // Add code here
+  /* USER CODE BEGIN Task10msHandler */
+  /* Infinite loop */
+  for(;;)
+  {
+	  task10msCnt++;
 
-        task10msCnt++;
-
-        vTaskDelayUntil(&xLastWakeTime, xFrequency);
-    }
-    /* USER CODE END Task10msHandler */
+  }
+  /* USER CODE END Task10msHandler */
 }
 
 /* USER CODE BEGIN Header_Task100msHandler */
@@ -1073,29 +926,95 @@ void Task10msHandler(void *argument)
 * @retval None
 */
 /* USER CODE END Header_Task100msHandler */
+void Task100msHandler(void *argument) {
+	/* USER CODE BEGIN Task100msHandler */
+	/* Infinite loop */
+	for (;;) {
+
+		task100msCnt++;
+
+		float averspeed = 0;
+		for (uint8_t i = 0; i < MAX_ANGLE_WHEEL_ARRAY - 2; i++) {
+			averspeed = averspeed + LeftW.speed[i];
+		};
+		LeftW.averspeed = averspeed / (MAX_ANGLE_WHEEL_ARRAY - 2);
+
+		if (fabsf(LeftW.Target_speed) > 0) {
+			LeftW.PID_value_P =  LeftW.PID_P * (LeftW.Target_speed - fabsf(LeftW.averspeed));
+
+			if (LeftW.PID_value_P > 20) {
+				LeftW.PID_value_P = 20;
+			};
+			if (LeftW.PID_value_P < -20) {
+				LeftW.PID_value_P = -20;
+			};
+
+			LeftW.PID_sum_I = LeftW.PID_sum_I + (LeftW.Target_speed - fabsf(LeftW.averspeed)) * 0.1;
+
+			LeftW.PWM_Value = LeftW.PWM_Value + LeftW.PID_value_P  + LeftW.PID_I * LeftW.PID_sum_I;
+
+			if (LeftW.PWM_Value < 0) {
+				LeftW.PWM_Value = 0;
+			};
+			if (LeftW.PWM_Value > 50000) {
+				LeftW.PWM_Value = 50000;
+			};
+
+			if (LeftW.averspeed<1)  {LeftW.PWM_Value = 6000;};
 
 
-void Task100msHandler(void *argument)
-{
-    /* USER CODE BEGIN Task100msHandler */
-    TickType_t xLastWakeTime;
-    const TickType_t xFrequency = 100 / portTICK_PERIOD_MS;
-    xLastWakeTime = xTaskGetTickCount();
-    /* Infinite loop */
-    for(;;)
-    {
-        // Add code here
-        task100msCnt++;
+			LeftW.PWM[MAX_ANGLE_WHEEL_ARRAY - 1] = (uint32_t) LeftW.PWM_Value;
+
+			__HAL_TIM_SET_COMPARE(&LeftW.htim, LeftW.PWM_Channel,
+					(uint32_t) LeftW.PWM_Value);
+
+		};
+
+		averspeed = 0;
+		for (uint8_t i = 0; i < MAX_ANGLE_WHEEL_ARRAY - 2; i++) {
+			averspeed = averspeed + RightW.speed[i];
+		};
+		RightW.averspeed = averspeed / (MAX_ANGLE_WHEEL_ARRAY - 2);
+
+		if (fabs(RightW.Target_speed) > 0) {
+
+			RightW.PID_value_P = RightW.PID_P * (RightW.Target_speed - RightW.averspeed);
+
+			if (RightW.PID_value_P > 50) {
+				RightW.PID_value_P = 50;
+			};
+			if (RightW.PID_value_P < -50) {
+				RightW.PID_value_P = -50;
+			};
+
+			RightW.PWM_Value = RightW.PWM_Value + RightW.PID_value_P;
+
+			if (RightW.PWM_Value < 0) {
+				RightW.PWM_Value = 0;
+			};
+			if (RightW.PWM_Value > 50000) {
+				RightW.PWM_Value = 50000;
+			};
+
+			if (RightW.averspeed<1)   {RightW.PWM_Value = 6000;};
+
+			RightW.PWM[MAX_ANGLE_WHEEL_ARRAY - 1] = (uint32_t) RightW.PWM_Value;
 
 
-    	if (newval==1) {
-    		newval = 0;
-    		 SetDir_Speed(speedr);
-    	}
+			__HAL_TIM_SET_COMPARE(&RightW.htim, RightW.PWM_Channel,
+					RightW.PWM_Value);
+		}
 
-        vTaskDelayUntil(&xLastWakeTime, xFrequency);
-    }
-    /* USER CODE END Task50msHandler */
+		if (fabs(RightW.Target_speed) == 0) {
+			RightW.PWM_Value = 0;
+			__HAL_TIM_SET_COMPARE(&RightW.htim, RightW.PWM_Channel,
+					(uint32_t) RightW.PWM_Value);
+		}
+
+		SetDir_Speed(speedr);
+
+	}
+	/* USER CODE END Task100msHandler */
 }
 
 /**
@@ -1106,7 +1025,156 @@ void Task100msHandler(void *argument)
   * @param  htim : TIM handle
   * @retval None
   */
+void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
+{
+  /* USER CODE BEGIN Callback 0 */
 
+  /* USER CODE END Callback 0 */
+  if (htim->Instance == TIM11) {
+    HAL_IncTick();
+  }
+  /* USER CODE BEGIN Callback 1 */
+	if (htim->Instance == TIM2) {
+ //     TIM2index++;
+
+		HAL_GPIO_TogglePin(GPIOC, GPIO_PIN_13);  // мигаем светодиодом
+
+		// сдвигаем в массиве все в сторону 0, в последнюю ячейку запишим новые данные
+		for (uint8_t i = 1; i < MAX_ANGLE_WHEEL_ARRAY; i++) {
+			LeftW.angle[i - 1] = LeftW.angle[i];
+			RightW.angle[i - 1] = RightW.angle[i];
+
+			LeftW.time_ms_wheel[i - 1] = LeftW.time_ms_wheel[i];
+			RightW.time_ms_wheel[i - 1] = RightW.time_ms_wheel[i];
+
+			LeftW.speed[i - 1] = LeftW.speed[i];
+			RightW.speed[i - 1] = RightW.speed[i];
+
+			LeftW.PWM[i - 1] = LeftW.PWM[i];
+			RightW.PWM[i - 1] = RightW.PWM[i];
+
+
+		};
+
+		// записывае время и угол каждого колеса
+		LeftW.time_ms_wheel[MAX_ANGLE_WHEEL_ARRAY - 1] = HAL_GetTick();
+		LeftW.angle[MAX_ANGLE_WHEEL_ARRAY - 1] = HAL_ReadAS5600_I2Cx(
+				LeftW.hi2c);
+
+
+		RightW.time_ms_wheel[MAX_ANGLE_WHEEL_ARRAY - 1] = HAL_GetTick();
+		RightW.angle[MAX_ANGLE_WHEEL_ARRAY - 1] = HAL_ReadAS5600_I2Cx(
+				RightW.hi2c);
+
+
+		// вычисляем скорость и записываем ее в временную переменную
+		float tmplspeed = -((1000
+				* (LeftW.angle[MAX_ANGLE_WHEEL_ARRAY - 1]
+						- LeftW.angle[MAX_ANGLE_WHEEL_ARRAY - 2]))
+				/ (LeftW.time_ms_wheel[MAX_ANGLE_WHEEL_ARRAY - 1]
+						- LeftW.time_ms_wheel[MAX_ANGLE_WHEEL_ARRAY - 2])) / 360
+				* 60;
+		float tmprspeed = ((1000
+				* (RightW.angle[MAX_ANGLE_WHEEL_ARRAY - 1]
+						- RightW.angle[MAX_ANGLE_WHEEL_ARRAY - 2]))
+				/ (RightW.time_ms_wheel[MAX_ANGLE_WHEEL_ARRAY - 1]
+						- RightW.time_ms_wheel[MAX_ANGLE_WHEEL_ARRAY - 2]))
+				/ 360 * 60;
+
+
+		// проверка правильности скорости - если скорость отличается на знак от предыдыущей скорости, то она неправильная
+		if ((tmplspeed * LeftW.speed[MAX_ANGLE_WHEEL_ARRAY - 2]) >= 0) {
+			for (uint8_t i = 1; i < MAX_ANGLE_WHEEL_ARRAY; i++) {
+				LeftW.speed[i - 1] = LeftW.speed[i];
+			};
+
+			if (fabsf(tmplspeed) < 1) {
+				tmplspeed = 0;
+			};
+			LeftW.speed[MAX_ANGLE_WHEEL_ARRAY - 1] = tmplspeed;
+			/*
+
+			LeftW.averspeed = 0;
+			for (uint8_t i = 0; i < MAX_ANGLE_WHEEL_ARRAY - 2; i++) {
+				LeftW.averspeed = LeftW.averspeed + LeftW.speed[i];
+			};
+			LeftW.averspeed = LeftW.averspeed / (MAX_ANGLE_WHEEL_ARRAY - 2);
+
+			if (fabsf(LeftW.Target_speed) > 7) {
+				LeftW.PID_value_P = 	(int32_t) (LeftW.PID_P * (LeftW.Target_speed - fabsf(LeftW.averspeed)) );
+
+				if ( LeftW.PID_value_P >50)   {LeftW.PID_value_P = 50;};
+				if ( LeftW.PID_value_P <-50)  {LeftW.PID_value_P = -50;};
+
+				LeftW.PID_sum_I = LeftW.PID_sum_I + (LeftW.Target_speed - fabsf(LeftW.averspeed))*0.1;
+
+				LeftW.PWM_Value = LeftW.PWM_Value + LeftW.PID_value_P + LeftW.PID_I*LeftW.PID_sum_I;
+
+				if (LeftW.PWM_Value<0)     {LeftW.PWM_Value = 0;};
+				if (LeftW.PWM_Value>50000) {LeftW.PWM_Value = 50000;};
+
+
+				__HAL_TIM_SET_COMPARE(&LeftW.htim, LeftW.PWM_Channel,
+						LeftW.PWM_Value);
+
+			};
+
+			if (fabs(LeftW.Target_speed) == 0) {
+				LeftW.PWM_Value = 0;
+				__HAL_TIM_SET_COMPARE(&LeftW.htim, LeftW.PWM_Channel,
+						LeftW.PWM_Value);
+			}*/
+
+		};
+
+		if ((tmprspeed * RightW.speed[MAX_ANGLE_WHEEL_ARRAY - 2]) >= 0) {
+			for (uint8_t i = 1; i < MAX_ANGLE_WHEEL_ARRAY; i++) {
+				RightW.speed[i - 1] = RightW.speed[i];
+			};
+			if (fabsf(tmprspeed) < 1) {
+				tmprspeed = 0;
+			};
+			RightW.speed[MAX_ANGLE_WHEEL_ARRAY - 1] = tmprspeed;
+
+		/*	RightW.averspeed = 0;
+			for (uint8_t i = 0; i < MAX_ANGLE_WHEEL_ARRAY - 2; i++) {
+				RightW.averspeed = RightW.averspeed + RightW.speed[i];
+			};
+			RightW.averspeed = RightW.averspeed / (MAX_ANGLE_WHEEL_ARRAY - 2);
+
+			if (fabs(RightW.Target_speed) > 7) {
+
+				RightW.PID_value_P = (int32_t) (RightW.PID_P * (RightW.Target_speed - RightW.averspeed));
+
+
+				if ( RightW.PID_value_P >50)   {RightW.PID_value_P = 50;};
+				if ( RightW.PID_value_P <-50)  {RightW.PID_value_P = -50;};
+
+				RightW.PWM_Value = RightW.PWM_Value + RightW.PID_value_P;
+
+				if (RightW.PWM_Value<0)     {RightW.PWM_Value = 0;};
+				if (RightW.PWM_Value>50000) {RightW.PWM_Value = 50000;};
+
+
+				__HAL_TIM_SET_COMPARE(&RightW.htim, RightW.PWM_Channel,
+						RightW.PWM_Value);
+			}
+
+
+			if (fabs(RightW.Target_speed) == 0) {
+				RightW.PWM_Value = 0;
+				__HAL_TIM_SET_COMPARE(&RightW.htim, RightW.PWM_Channel,
+						RightW.PWM_Value);
+			}
+
+			*/
+
+		};
+
+
+	} // end of TIM2
+  /* USER CODE END Callback 1 */
+}
 
 /**
   * @brief  This function is executed in case of error occurrence.
