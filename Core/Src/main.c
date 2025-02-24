@@ -51,12 +51,14 @@ struct WheelData
 	uint16_t GPIO_Pin_INB;
 	GPIO_PinState PinState_INB;
 
-	float Target_speed;
+	float CurrentSpeed,Target_speed;
 	uint32_t time_ms_wheel[MAX_ANGLE_WHEEL_ARRAY];
 	double angle[MAX_ANGLE_WHEEL_ARRAY];
 	float speed[MAX_ANGLE_WHEEL_ARRAY];
+	float sumI[MAX_ANGLE_WHEEL_ARRAY];
 
-	float averspeed;	//,turns_left,prior_quadrant,current_quadrant;
+
+	//float averspeed;	//,turns_left,prior_quadrant,current_quadrant;
 	uint32_t PWM_Channel;
 	float PWM_Value,PID_value_P,PID_value_I;
 
@@ -266,13 +268,10 @@ void Motor_Init(void)
 
 void SetDir_Speed(float Speed) {
 
-	if (Speed==LeftW.Target_speed) {return;};
+	if ((Speed==LeftW.Target_speed) && (Speed==RightW.Target_speed)) {return;};
 
 	RightW.Target_speed = Speed;
-	LeftW.Target_speed = Speed;
-
-//	RightW.PWM_Value = (int32_t) 5000;
-//	LeftW.PWM_Value = (int32_t) 5000;
+	LeftW.Target_speed  = Speed;
 
 	if (LeftW.Target_speed > 0) {
 		LeftW.PinState_INA = GPIO_PIN_RESET;
@@ -293,7 +292,7 @@ void SetDir_Speed(float Speed) {
 	HAL_GPIO_WritePin(LeftW.GPIOx_INA, LeftW.GPIO_Pin_INA, LeftW.PinState_INA);
 	HAL_GPIO_WritePin(LeftW.GPIOx_INB, LeftW.GPIO_Pin_INB, LeftW.PinState_INB);
 
-	__HAL_TIM_SET_COMPARE(&LeftW.htim, LeftW.PWM_Channel, LeftW.PWM_Value);
+
 
 	if (RightW.Target_speed > 0) {
 		RightW.PinState_INA = GPIO_PIN_SET;
@@ -313,14 +312,8 @@ void SetDir_Speed(float Speed) {
 		RightW.Direction = WH_STOP;
 
 	};
-
-	HAL_GPIO_WritePin(RightW.GPIOx_INA, RightW.GPIO_Pin_INA,
-			RightW.PinState_INA);
-	HAL_GPIO_WritePin(RightW.GPIOx_INB, RightW.GPIO_Pin_INB,
-			RightW.PinState_INB);
-
-	__HAL_TIM_SET_COMPARE(&RightW.htim, RightW.PWM_Channel, RightW.PWM_Value);
-
+	HAL_GPIO_WritePin(RightW.GPIOx_INA, RightW.GPIO_Pin_INA,RightW.PinState_INA);
+	HAL_GPIO_WritePin(RightW.GPIOx_INB, RightW.GPIO_Pin_INB,RightW.PinState_INB);
 }
 
 
@@ -933,83 +926,64 @@ void Task100msHandler(void *argument) {
 
 		task100msCnt++;
 
-		float averspeed = 0;
-		for (uint8_t i = 0; i < MAX_ANGLE_WHEEL_ARRAY - 2; i++) {
-			averspeed = averspeed + LeftW.speed[i];
-		};
-		LeftW.averspeed = averspeed / (MAX_ANGLE_WHEEL_ARRAY - 2);
-
 		if (fabsf(LeftW.Target_speed) > 0) {
-			LeftW.PID_value_P =  LeftW.PID_P * (LeftW.Target_speed - fabsf(LeftW.averspeed));
+			LeftW.PID_value_P =  LeftW.PID_P * (LeftW.Target_speed - LeftW.CurrentSpeed);
 
-			if (LeftW.PID_value_P > 20) {
-				LeftW.PID_value_P = 20;
-			};
-			if (LeftW.PID_value_P < -20) {
-				LeftW.PID_value_P = -20;
-			};
+			if (LeftW.PID_value_P > 20)  { LeftW.PID_value_P = 20;  };
+			if (LeftW.PID_value_P < -20) { LeftW.PID_value_P = -20;	};
 
-			LeftW.PID_sum_I = LeftW.PID_sum_I + (LeftW.Target_speed - fabsf(LeftW.averspeed)) * 0.1;
+			LeftW.PID_sum_I = 0;
+			for (uint8_t i = 1; i < MAX_ANGLE_WHEEL_ARRAY; i++) {
+				LeftW.PID_sum_I = LeftW.PID_sum_I + LeftW.sumI[i];
+			}
 
 			LeftW.PWM_Value = LeftW.PWM_Value + LeftW.PID_value_P  + LeftW.PID_I * LeftW.PID_sum_I;
 
-			if (LeftW.PWM_Value < 0) {
-				LeftW.PWM_Value = 0;
-			};
-			if (LeftW.PWM_Value > 50000) {
-				LeftW.PWM_Value = 50000;
-			};
-
-			if (LeftW.averspeed<1)  {LeftW.PWM_Value = 6000;};
-
+			if (LeftW.PWM_Value < 0)     { LeftW.PWM_Value = 0;	};
+			if (LeftW.PWM_Value > 50000) { LeftW.PWM_Value = 50000; };
 
 			LeftW.PWM[MAX_ANGLE_WHEEL_ARRAY - 1] = (uint32_t) LeftW.PWM_Value;
 
-			__HAL_TIM_SET_COMPARE(&LeftW.htim, LeftW.PWM_Channel,
-					(uint32_t) LeftW.PWM_Value);
+		} else {
 
-		};
+			LeftW.PWM_Value = 0;
+			LeftW.PWM[MAX_ANGLE_WHEEL_ARRAY - 1] = (uint32_t) LeftW.PWM_Value;
 
-		averspeed = 0;
-		for (uint8_t i = 0; i < MAX_ANGLE_WHEEL_ARRAY - 2; i++) {
-			averspeed = averspeed + RightW.speed[i];
-		};
-		RightW.averspeed = averspeed / (MAX_ANGLE_WHEEL_ARRAY - 2);
+		}
+
+		__HAL_TIM_SET_COMPARE(&LeftW.htim, LeftW.PWM_Channel,
+				(uint32_t) LeftW.PWM_Value);
+
 
 		if (fabs(RightW.Target_speed) > 0) {
 
-			RightW.PID_value_P = RightW.PID_P * (RightW.Target_speed - RightW.averspeed);
+			RightW.PID_value_P =  RightW.PID_P * (RightW.Target_speed - RightW.CurrentSpeed);
 
-			if (RightW.PID_value_P > 50) {
-				RightW.PID_value_P = 50;
-			};
-			if (RightW.PID_value_P < -50) {
-				RightW.PID_value_P = -50;
-			};
+			if (RightW.PID_value_P > 20)  { RightW.PID_value_P = 20;  };
+			if (RightW.PID_value_P < -20) { RightW.PID_value_P = -20;	};
 
-			RightW.PWM_Value = RightW.PWM_Value + RightW.PID_value_P;
+			RightW.PID_sum_I = 0;
+			for (uint8_t i = 1; i < MAX_ANGLE_WHEEL_ARRAY; i++) {
+				RightW.PID_sum_I = RightW.PID_sum_I + RightW.sumI[i];
+			}
 
-			if (RightW.PWM_Value < 0) {
-				RightW.PWM_Value = 0;
-			};
-			if (RightW.PWM_Value > 50000) {
-				RightW.PWM_Value = 50000;
-			};
+			RightW.PWM_Value = RightW.PWM_Value + RightW.PID_value_P  + RightW.PID_I * RightW.PID_sum_I;
 
-			if (RightW.averspeed<1)   {RightW.PWM_Value = 6000;};
+			if (RightW.PWM_Value < 0)     { RightW.PWM_Value = 0;	};
+			if (RightW.PWM_Value > 50000) { RightW.PWM_Value = 50000; };
 
 			RightW.PWM[MAX_ANGLE_WHEEL_ARRAY - 1] = (uint32_t) RightW.PWM_Value;
 
+		} else {
 
-			__HAL_TIM_SET_COMPARE(&RightW.htim, RightW.PWM_Channel,
-					RightW.PWM_Value);
-		}
-
-		if (fabs(RightW.Target_speed) == 0) {
 			RightW.PWM_Value = 0;
-			__HAL_TIM_SET_COMPARE(&RightW.htim, RightW.PWM_Channel,
-					(uint32_t) RightW.PWM_Value);
+			RightW.PWM[MAX_ANGLE_WHEEL_ARRAY - 1] = (uint32_t) RightW.PWM_Value;
+
 		}
+
+		__HAL_TIM_SET_COMPARE(&RightW.htim, RightW.PWM_Channel,
+				(uint32_t) RightW.PWM_Value);
+
 
 		SetDir_Speed(speedr);
 
@@ -1035,141 +1009,46 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
   }
   /* USER CODE BEGIN Callback 1 */
 	if (htim->Instance == TIM2) {
- //     TIM2index++;
 
 		HAL_GPIO_TogglePin(GPIOC, GPIO_PIN_13);  // мигаем светодиодом
 
-		// сдвигаем в массиве все в сторону 0, в последнюю ячейку запишим новые данные
-		for (uint8_t i = 1; i < MAX_ANGLE_WHEEL_ARRAY; i++) {
-			LeftW.angle[i - 1] = LeftW.angle[i];
-			RightW.angle[i - 1] = RightW.angle[i];
-
-			LeftW.time_ms_wheel[i - 1] = LeftW.time_ms_wheel[i];
-			RightW.time_ms_wheel[i - 1] = RightW.time_ms_wheel[i];
-
-			LeftW.speed[i - 1] = LeftW.speed[i];
-			RightW.speed[i - 1] = RightW.speed[i];
-
-			LeftW.PWM[i - 1] = LeftW.PWM[i];
-			RightW.PWM[i - 1] = RightW.PWM[i];
-
-
-		};
-
 		// записывае время и угол каждого колеса
-		LeftW.time_ms_wheel[MAX_ANGLE_WHEEL_ARRAY - 1] = HAL_GetTick();
-		LeftW.angle[MAX_ANGLE_WHEEL_ARRAY - 1] = HAL_ReadAS5600_I2Cx(
-				LeftW.hi2c);
+		uint32_t LeftWtime_ms_wheel = HAL_GetTick();
+		float LeftWangle= HAL_ReadAS5600_I2Cx(LeftW.hi2c);
 
-
-		RightW.time_ms_wheel[MAX_ANGLE_WHEEL_ARRAY - 1] = HAL_GetTick();
-		RightW.angle[MAX_ANGLE_WHEEL_ARRAY - 1] = HAL_ReadAS5600_I2Cx(
-				RightW.hi2c);
-
+		uint32_t RightWtime_ms_wheel = HAL_GetTick();
+		float RightWangle = HAL_ReadAS5600_I2Cx(RightW.hi2c);
 
 		// вычисляем скорость и записываем ее в временную переменную
-		float tmplspeed = -((1000
-				* (LeftW.angle[MAX_ANGLE_WHEEL_ARRAY - 1]
-						- LeftW.angle[MAX_ANGLE_WHEEL_ARRAY - 2]))
-				/ (LeftW.time_ms_wheel[MAX_ANGLE_WHEEL_ARRAY - 1]
-						- LeftW.time_ms_wheel[MAX_ANGLE_WHEEL_ARRAY - 2])) / 360
-				* 60;
-		float tmprspeed = ((1000
-				* (RightW.angle[MAX_ANGLE_WHEEL_ARRAY - 1]
-						- RightW.angle[MAX_ANGLE_WHEEL_ARRAY - 2]))
-				/ (RightW.time_ms_wheel[MAX_ANGLE_WHEEL_ARRAY - 1]
-						- RightW.time_ms_wheel[MAX_ANGLE_WHEEL_ARRAY - 2]))
-				/ 360 * 60;
+		LeftW.CurrentSpeed = fabsf((1000
+				* (LeftWangle - LeftW.angle[MAX_ANGLE_WHEEL_ARRAY - 1]))
+				/ (LeftWtime_ms_wheel  - LeftW.time_ms_wheel[MAX_ANGLE_WHEEL_ARRAY - 1])) / 360 * 60;
 
+		RightW.CurrentSpeed = fabsf((1000
+				* (RightWangle - RightW.angle[MAX_ANGLE_WHEEL_ARRAY - 1]))
+				/ (RightWtime_ms_wheel - RightW.time_ms_wheel[MAX_ANGLE_WHEEL_ARRAY - 1]))/ 360 * 60;
 
-		// проверка правильности скорости - если скорость отличается на знак от предыдыущей скорости, то она неправильная
-		if ((tmplspeed * LeftW.speed[MAX_ANGLE_WHEEL_ARRAY - 2]) >= 0) {
-			for (uint8_t i = 1; i < MAX_ANGLE_WHEEL_ARRAY; i++) {
-				LeftW.speed[i - 1] = LeftW.speed[i];
-			};
+		// сдвигаем в массиве все в сторону 0, в последнюю ячейку запишим новые данные
+		for (uint8_t i = 1; i < MAX_ANGLE_WHEEL_ARRAY; i++) {
+		  LeftW.angle[i - 1] = LeftW.angle[i];
+		  LeftW.time_ms_wheel[i - 1] = LeftW.time_ms_wheel[i];
+		  LeftW.speed[i - 1] = LeftW.speed[i];
+ 		  LeftW.PWM[i - 1] = LeftW.PWM[i];
+		  LeftW.sumI[i - 1] = LeftW.sumI[i];
 
-			if (fabsf(tmplspeed) < 1) {
-				tmplspeed = 0;
-			};
-			LeftW.speed[MAX_ANGLE_WHEEL_ARRAY - 1] = tmplspeed;
-			/*
-
-			LeftW.averspeed = 0;
-			for (uint8_t i = 0; i < MAX_ANGLE_WHEEL_ARRAY - 2; i++) {
-				LeftW.averspeed = LeftW.averspeed + LeftW.speed[i];
-			};
-			LeftW.averspeed = LeftW.averspeed / (MAX_ANGLE_WHEEL_ARRAY - 2);
-
-			if (fabsf(LeftW.Target_speed) > 7) {
-				LeftW.PID_value_P = 	(int32_t) (LeftW.PID_P * (LeftW.Target_speed - fabsf(LeftW.averspeed)) );
-
-				if ( LeftW.PID_value_P >50)   {LeftW.PID_value_P = 50;};
-				if ( LeftW.PID_value_P <-50)  {LeftW.PID_value_P = -50;};
-
-				LeftW.PID_sum_I = LeftW.PID_sum_I + (LeftW.Target_speed - fabsf(LeftW.averspeed))*0.1;
-
-				LeftW.PWM_Value = LeftW.PWM_Value + LeftW.PID_value_P + LeftW.PID_I*LeftW.PID_sum_I;
-
-				if (LeftW.PWM_Value<0)     {LeftW.PWM_Value = 0;};
-				if (LeftW.PWM_Value>50000) {LeftW.PWM_Value = 50000;};
-
-
-				__HAL_TIM_SET_COMPARE(&LeftW.htim, LeftW.PWM_Channel,
-						LeftW.PWM_Value);
-
-			};
-
-			if (fabs(LeftW.Target_speed) == 0) {
-				LeftW.PWM_Value = 0;
-				__HAL_TIM_SET_COMPARE(&LeftW.htim, LeftW.PWM_Channel,
-						LeftW.PWM_Value);
-			}*/
-
+		  RightW.angle[i - 1] = RightW.angle[i];
+		  RightW.time_ms_wheel[i - 1] = RightW.time_ms_wheel[i];
+		  RightW.speed[i - 1] = RightW.speed[i];
+		  RightW.PWM[i - 1] = RightW.PWM[i];
+		  RightW.sumI[i - 1] = RightW.sumI[i];
 		};
 
-		if ((tmprspeed * RightW.speed[MAX_ANGLE_WHEEL_ARRAY - 2]) >= 0) {
-			for (uint8_t i = 1; i < MAX_ANGLE_WHEEL_ARRAY; i++) {
-				RightW.speed[i - 1] = RightW.speed[i];
-			};
-			if (fabsf(tmprspeed) < 1) {
-				tmprspeed = 0;
-			};
-			RightW.speed[MAX_ANGLE_WHEEL_ARRAY - 1] = tmprspeed;
 
-		/*	RightW.averspeed = 0;
-			for (uint8_t i = 0; i < MAX_ANGLE_WHEEL_ARRAY - 2; i++) {
-				RightW.averspeed = RightW.averspeed + RightW.speed[i];
-			};
-			RightW.averspeed = RightW.averspeed / (MAX_ANGLE_WHEEL_ARRAY - 2);
+		LeftW.speed[MAX_ANGLE_WHEEL_ARRAY - 1] = LeftW.CurrentSpeed;
+		LeftW.sumI[MAX_ANGLE_WHEEL_ARRAY  - 1] = LeftW.CurrentSpeed - LeftW.Target_speed;
 
-			if (fabs(RightW.Target_speed) > 7) {
-
-				RightW.PID_value_P = (int32_t) (RightW.PID_P * (RightW.Target_speed - RightW.averspeed));
-
-
-				if ( RightW.PID_value_P >50)   {RightW.PID_value_P = 50;};
-				if ( RightW.PID_value_P <-50)  {RightW.PID_value_P = -50;};
-
-				RightW.PWM_Value = RightW.PWM_Value + RightW.PID_value_P;
-
-				if (RightW.PWM_Value<0)     {RightW.PWM_Value = 0;};
-				if (RightW.PWM_Value>50000) {RightW.PWM_Value = 50000;};
-
-
-				__HAL_TIM_SET_COMPARE(&RightW.htim, RightW.PWM_Channel,
-						RightW.PWM_Value);
-			}
-
-
-			if (fabs(RightW.Target_speed) == 0) {
-				RightW.PWM_Value = 0;
-				__HAL_TIM_SET_COMPARE(&RightW.htim, RightW.PWM_Channel,
-						RightW.PWM_Value);
-			}
-
-			*/
-
-		};
+		RightW.speed[MAX_ANGLE_WHEEL_ARRAY - 1] = RightW.CurrentSpeed;
+		RightW.sumI[MAX_ANGLE_WHEEL_ARRAY  - 1] = RightW.CurrentSpeed - RightW.Target_speed;
 
 
 	} // end of TIM2
