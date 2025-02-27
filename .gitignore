@@ -3,6 +3,9 @@
 *.ko
 *.obj
 *.elf
+*.su
+*.cyclo
+*.list
 
 # Libraries
 *.lib

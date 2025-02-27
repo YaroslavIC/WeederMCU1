@@ -1,20 +1,21 @@
-../Core/Src/main.c:183:7:HAL_ReadAS5600_I2Cx	1
-../Core/Src/main.c:218:6:Calibration_Motor	2
-../Core/Src/main.c:229:6:Motor_Init	7
-../Core/Src/main.c:269:6:SetDir_Speed	9
-../Core/Src/main.c:328:5:main	2
-../Core/Src/main.c:449:6:SystemClock_Config	3
-../Core/Src/main.c:491:13:MX_ADC1_Init	4
-../Core/Src/main.c:552:13:MX_I2C1_Init	2
-../Core/Src/main.c:586:13:MX_I2C2_Init	2
-../Core/Src/main.c:620:13:MX_SPI2_Init	2
-../Core/Src/main.c:658:13:MX_TIM1_Init	8
-../Core/Src/main.c:737:13:MX_TIM2_Init	4
-../Core/Src/main.c:780:13:MX_DMA_Init	1
-../Core/Src/main.c:798:13:MX_GPIO_Init	1
-../Core/Src/main.c:867:6:StartDefaultTask	1
-../Core/Src/main.c:885:6:Task1msHandler	1
-../Core/Src/main.c:903:6:Task10msHandler	1
-../Core/Src/main.c:922:6:Task100msHandler	25
-../Core/Src/main.c:1008:6:HAL_TIM_PeriodElapsedCallback	4
-../Core/Src/main.c:1068:6:Error_Handler	1
+../Core/Src/main.cpp:199:1:WheelData::WheelData(I2C_HandleTypeDef, TIM_HandleTypeDef, uint16_t, GPIO_TypeDef*, uint16_t, GPIO_PinState, GPIO_TypeDef*, uint16_t, GPIO_PinState, WheelSide)	4
+../Core/Src/main.cpp:246:6:void WheelData::ReadAS5600()	4
+../Core/Src/main.cpp:303:6:void WheelData::Set_Speed(float)	9
+../Core/Src/main.cpp:353:6:void WheelData::Calculation()	10
+../Core/Src/main.cpp:383:6:void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef*)	3
+../Core/Src/main.cpp:402:5:int main()	2
+../Core/Src/main.cpp:534:6:void SystemClock_Config()	3
+../Core/Src/main.cpp:576:13:void MX_ADC1_Init()	4
+../Core/Src/main.cpp:637:13:void MX_I2C1_Init()	2
+../Core/Src/main.cpp:671:13:void MX_I2C2_Init()	2
+../Core/Src/main.cpp:705:13:void MX_SPI2_Init()	2
+../Core/Src/main.cpp:743:13:void MX_TIM1_Init()	8
+../Core/Src/main.cpp:822:13:void MX_TIM2_Init()	4
+../Core/Src/main.cpp:865:13:void MX_DMA_Init()	1
+../Core/Src/main.cpp:883:13:void MX_GPIO_Init()	1
+../Core/Src/main.cpp:952:6:void StartDefaultTask(void*)	1
+../Core/Src/main.cpp:970:6:void Task1msHandler(void*)	1
+../Core/Src/main.cpp:987:6:void Task10msHandler(void*)	1
+../Core/Src/main.cpp:1006:6:void Task100msHandler(void*)	1
+../Core/Src/main.cpp:1032:6:void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef*)	3
+../Core/Src/main.cpp:1054:6:void Error_Handler()	1
