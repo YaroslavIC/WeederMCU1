@@ -84,6 +84,7 @@ public:
 	double angle[MAX_ANGLE_WHEEL_ARRAY];
 	float speed[MAX_ANGLE_WHEEL_ARRAY];
 	float Disired_Target_diff[MAX_ANGLE_WHEEL_ARRAY];
+	float curr[MAX_ANGLE_WHEEL_ARRAY];
 
 	//float averspeed;	//,turns_left,prior_quadrant,current_quadrant;
 	uint32_t PWM_Channel;
@@ -1015,8 +1016,8 @@ void Task100msHandler(void *argument) {
 
 		HAL_ADC_Start_DMA(&hadc1, (uint32_t*)adcData, ADC_CHANNELS_NUM*10);
 
-		clLeftW->ReadAS5600();
-		clRightW->ReadAS5600();
+		clLeftW->ReadAS5600_Curr(0);
+		clRightW->ReadAS5600_Curr(0);
 
 
 
