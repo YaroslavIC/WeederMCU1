@@ -1,12 +1,19 @@
 /*
- * GY_85.h
+ * GY85.h
  *
  *  Created on: Mar 01  2025
  *      Author: HeroPC
  */
 
-#ifndef GY_85_H
-#define GY_85_H
+#ifndef GY85_H
+#define GY85_H
+
+
+#ifdef __cplusplus
+ extern "C" {
+#endif
+
+
 
 #include "stm32f4xx_hal.h"
 #include "math.h"
@@ -65,5 +72,9 @@ void SetMeasureMode(I2C_HandleTypeDef hi2cX, uint8_t Measure);
 uint16_t CompasReadAxis(I2C_HandleTypeDef hi2cX,uint16_t reg);
 float CompasRead6Axis(I2C_HandleTypeDef hi2cX);
 float compensate(float compass_X, float compass_Y, float compass_Z, float pitch, float roll);
+
+#ifdef __cplusplus
+  }
+#endif
 
 #endif // GY_85_H

@@ -6,7 +6,7 @@
   ******************************************************************************
   * @attention
   *
-  * Copyright (c) 2024 STMicroelectronics.
+  * Copyright (c) 2025 STMicroelectronics.
   * All rights reserved.
   *
   * This software is licensed under terms that can be found in the LICENSE file
@@ -22,98 +22,16 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-#include "cli_app.h"
-#include "task.h"
-#include <string.h>
-#include "math.h"
-#include "GY85.h"
 
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
 /* USER CODE BEGIN PTD */
-#define  MAX_ANGLE_WHEEL_ARRAY 20
-enum DirectionEnum {WH_CW, WH_CCW,WH_STOP};
-enum WheelSide {wsLeft,wsRight,wsNone};
-
-
-
-
- class WheelData {
-private:
-	enum DirectionEnum Direction;
-
-	TIM_HandleTypeDef htim;
-	I2C_HandleTypeDef hi2c;
-
-	GPIO_TypeDef* GPIOx_INA;
-	uint16_t GPIO_Pin_INA;
-	GPIO_PinState PinState_INA;
-
-	GPIO_TypeDef* GPIOx_INB;
-	uint16_t GPIO_Pin_INB;
-	GPIO_PinState PinState_INB;
-
-	enum WheelSide ws;
-
-public:
-	WheelData(
-
-			I2C_HandleTypeDef hi2c_,
-			TIM_HandleTypeDef htim_,
-
-			uint16_t  PWM_Channel_,
-
-			GPIO_TypeDef* GPIOx_INA_,
-			uint16_t GPIO_Pin_INA_,
-			GPIO_PinState PinState_INA_,
-
-
-			GPIO_TypeDef* GPIOx_INB_,
-			uint16_t GPIO_Pin_INB_,
-			GPIO_PinState PinState_INB_,
-
-
-			enum WheelSide WS_);
-
-	void ReadAS5600_Curr(float curr_) ;
-	void Set_Speed(float Speed_);
-	void Calculation(void);
-
-	float Current_Speed, Target_Speed;
-	uint32_t time_ms_wheel[MAX_ANGLE_WHEEL_ARRAY];
-	double angle[MAX_ANGLE_WHEEL_ARRAY];
-	float speed[MAX_ANGLE_WHEEL_ARRAY];
-	float Disired_Target_diff[MAX_ANGLE_WHEEL_ARRAY];
-
-	//float averspeed;	//,turns_left,prior_quadrant,current_quadrant;
-	uint32_t PWM_Channel;
-	float PWM_Value, PID_value_P, PID_value_I;
-
-//	uint32_t speed_priortime;
-//	int32_t delta_PWM;
-	//float delta_speed;
-
-	float PID_P, PID_I, PID_D, PID_sum_I;
-
-	//	uint32_t PWM[31];
-
-	float curr[MAX_ANGLE_WHEEL_ARRAY];
-
-};
 
 /* USER CODE END PTD */
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-#define I2C_AS5600					0x36
-#define AS5600_RAW_ANGLE_H			0x0C
-#define AS5600_RAW_ANGLE_L			0x0D
-#define AS5600_ANGLE_H				0x0E
-#define AS5600_ANGLE_L				0x0F
-
-#define ADC_CHANNELS_NUM   			2
-#define ADC_CHANNEL_LENGTH 			10
 
 /* USER CODE END PD */
 
@@ -164,23 +82,6 @@ const osThreadAttr_t Task100ms_attributes = {
 };
 /* USER CODE BEGIN PV */
 
-extern float compass_scale;
-extern float compass_declination_offset_radians;
-
-
-extern osThreadId_t cmdLineTaskHandle;
-
-uint16_t adcData[ADC_CHANNELS_NUM*10];
-float adcVoltage[ADC_CHANNELS_NUM*10];
-
-
-WheelData* clLeftW;
-WheelData* clRightW;
-
-
-float set_speed;
-
-
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -204,206 +105,6 @@ void Task100msHandler(void *argument);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
-WheelData::WheelData(
-
-		I2C_HandleTypeDef hi2c_,
-		TIM_HandleTypeDef htim_,
-
-		uint16_t    PWM_Channel_,
-
-		GPIO_TypeDef *GPIOx_INA_,
-		uint16_t GPIO_Pin_INA_,
-		GPIO_PinState PinState_INA_,
-
-		GPIO_TypeDef *GPIOx_INB_,
-		uint16_t GPIO_Pin_INB_,
-		GPIO_PinState PinState_INB_,
-
-		WheelSide WS_)
-
-{
-
-	hi2c = hi2c_;
-
-	htim = htim_;
-
-	PWM_Channel = PWM_Channel_;
-
-	GPIOx_INA = GPIOx_INA_;
-	GPIO_Pin_INA = GPIO_Pin_INA_;
-	PinState_INA = PinState_INA_;
-
-	GPIOx_INB = GPIOx_INB_;
-	GPIO_Pin_INB = GPIO_Pin_INB_;
-	PinState_INB = PinState_INB_;
-
-	ws = WS_;
-
-	HAL_TIM_PWM_Start(&htim, PWM_Channel);
-	__HAL_TIM_SET_COMPARE(&htim, PWM_Channel, 0);
-
-	PID_P = 0.01;
-	PID_I = 0;
-	PID_D = 0;
-
-	Target_Speed = 0;
-	Current_Speed = 0;
-
-}
-
-void WheelData::ReadAS5600_Curr(float curr_) // pulling 0.5 ms
-		{
-	uint8_t regData[2];
-
-	HAL_I2C_Mem_Read(&hi2c, (I2C_AS5600 << 1), AS5600_ANGLE_H,
-			I2C_MEMADD_SIZE_8BIT, (uint8_t*) &regData, 2, 0x10000);
-
-	float tmpangle = ((float) (((uint16_t) regData[0] << 8
-			| (uint16_t) regData[1]) & (uint16_t) 0xFFF)) / 4096 * 360;
-
-	uint32_t tmpmsec = HAL_GetTick();
-
-
-
-
-	float tmpCurrent_Speed = fabsf(
-			(1000 * (tmpangle - angle[MAX_ANGLE_WHEEL_ARRAY - 1]))
-					/ (tmpmsec - time_ms_wheel[MAX_ANGLE_WHEEL_ARRAY - 1]))
-			/ 360 * 60;
-
-	// сдвигаем в массиве все в сторону 0, в последнюю ячейку запишим новые данные
-	for (uint8_t i = 1; i < MAX_ANGLE_WHEEL_ARRAY; i++) {
-		angle[i - 1] = angle[i];
-		time_ms_wheel[i - 1] = time_ms_wheel[i];
-		speed[i - 1] = speed[i];
-		Disired_Target_diff[i - 1] = Disired_Target_diff[i];
-		curr[i - 1] = curr[i];
-	};
-
-    // текущая  скорость будт обновлена только если нет перехода угла через ноль
-
-	if (((tmpangle-angle[MAX_ANGLE_WHEEL_ARRAY - 1])*(angle[MAX_ANGLE_WHEEL_ARRAY - 1]-angle[MAX_ANGLE_WHEEL_ARRAY - 2]))<0) {
-		angle[MAX_ANGLE_WHEEL_ARRAY - 1] = tmpangle;
-		time_ms_wheel[MAX_ANGLE_WHEEL_ARRAY - 1] = tmpmsec;
-		curr[MAX_ANGLE_WHEEL_ARRAY - 1] = curr_;
-		return;
-	} else {
-		angle[MAX_ANGLE_WHEEL_ARRAY - 1] = tmpangle;
-		time_ms_wheel[MAX_ANGLE_WHEEL_ARRAY - 1] = tmpmsec;
-		speed[MAX_ANGLE_WHEEL_ARRAY - 1] = tmpCurrent_Speed;
-
-		Disired_Target_diff[MAX_ANGLE_WHEEL_ARRAY - 1] = Target_Speed - tmpCurrent_Speed;
-
-		float tmpPID_sum_I = 0;
-		for (uint8_t i = 1; i < MAX_ANGLE_WHEEL_ARRAY; i++) {
-			tmpPID_sum_I = tmpPID_sum_I + Disired_Target_diff[i];
-		}
-		PID_sum_I = tmpPID_sum_I;
-
-		Current_Speed = tmpCurrent_Speed;
-
-		curr[MAX_ANGLE_WHEEL_ARRAY - 1] = curr_;
-
-	}
-
-
-
-}
-
-
-
-void WheelData::Set_Speed(float Speed_) {
-
-	Target_Speed = fabsf(Speed_);
-
-	if (ws == wsLeft) {
-
-		if (Speed_ > 0) {
-			PinState_INA = GPIO_PIN_RESET;
-			PinState_INB = GPIO_PIN_SET;
-			Direction = WH_CW;
-		};
-		if (Speed_ < 0) {
-			PinState_INA = GPIO_PIN_SET;
-			PinState_INB = GPIO_PIN_RESET;
-			Direction = WH_CCW;
-		};
-
-		if (Speed_  == 0) {
-			PinState_INA = GPIO_PIN_RESET;
-			PinState_INB = GPIO_PIN_RESET;
-			Direction = WH_STOP;
-		};
-	}
-
-	if (ws == wsRight) {
-
-		if (Speed_  < 0) {
-			PinState_INA = GPIO_PIN_RESET;
-			PinState_INB = GPIO_PIN_SET;
-			Direction = WH_CW;
-		};
-		if (Speed_  > 0) {
-			PinState_INA = GPIO_PIN_SET;
-			PinState_INB = GPIO_PIN_RESET;
-			Direction = WH_CCW;
-		};
-
-		if (Speed_  == 0) {
-			PinState_INA = GPIO_PIN_RESET;
-			PinState_INB = GPIO_PIN_RESET;
-			Direction = WH_STOP;
-		};
-	}
-
-	HAL_GPIO_WritePin(GPIOx_INA, GPIO_Pin_INA, PinState_INA);
-	HAL_GPIO_WritePin(GPIOx_INB, GPIO_Pin_INB, PinState_INB);
-
-}
-
-
-void WheelData::Calculation(void)
-{
-	if (fabsf(Target_Speed) > 0) {
-		PID_value_P =  PID_P * (Target_Speed - Current_Speed);
-
-		if (PID_value_P > 20)  { PID_value_P = 20;  };
-		if (PID_value_P < -20) { PID_value_P = -20;	};
-
-		PID_sum_I = 0;
-		for (uint8_t i = 1; i < MAX_ANGLE_WHEEL_ARRAY; i++) {
-			PID_sum_I = PID_sum_I + Disired_Target_diff[i];
-		}
-
-		PWM_Value = PWM_Value + PID_value_P  + PID_I * PID_sum_I;
-
-		if (PWM_Value < 0)     {PWM_Value = 0;	};
-		if (PWM_Value > 50000) {PWM_Value = 50000; };
-
-
-	} else {
-
-		PWM_Value = 0;
-
-	}
-
-	__HAL_TIM_SET_COMPARE(&htim, PWM_Channel,
-			(uint32_t) PWM_Value);
-}
-
-
-void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef* hadc)
-{
-  if(hadc->Instance == ADC1)
-  {
-    for (uint8_t i = 0; i < ADC_CHANNELS_NUM; i++)
-    {
-      adcVoltage[i] = adcData[i] * 3.3 / 4095;
-    }
-  }
-}
-
-
 
 /* USER CODE END 0 */
 
@@ -444,65 +145,6 @@ int main(void)
   MX_TIM1_Init();
   MX_SPI2_Init();
   /* USER CODE BEGIN 2 */
-
-
-
-
-
-  if (HAL_TIM_Base_Start_IT(&htim2) != HAL_OK)
-  {
-    /* Starting Error */
-    Error_Handler();
-  }
-
-
-	HAL_ADC_Start_DMA(&hadc1, (uint32_t*)adcData, ADC_CHANNELS_NUM*ADC_CHANNEL_LENGTH);
-
-
-
- clLeftW = new WheelData(hi2c2, htim1,
-	TIM_CHANNEL_1,
-	GPIOB,
-	R_INA_Pin, GPIO_PIN_RESET,
-	GPIOB,
-	R_INB_Pin, GPIO_PIN_RESET, wsLeft);
-
-	clRightW = new WheelData(hi2c1, htim1,
-	TIM_CHANNEL_4,
-	GPIOA,
-	L_INA_Pin, GPIO_PIN_RESET,
-	GPIOA,
-	L_INB_Pin, GPIO_PIN_RESET, wsRight);
-
-
-    compass_SetDeclination(23, 35, 'E');
-	SetSamplingMode(hi2c1, COMPASS_SAMPLE8 , COMPASS_RATE15, COMPASS_MEASURE_NORMAL);
-	SetScaleMode(hi2c1, COMPASS_SCALE_130);
-	SetMeasureMode(hi2c1,COMPASS_CONTINUOUS);
-
-//	float degrees = CompasRead6Axis(hi2c1);
-
-	float x = CompasReadAxis(hi2c1,Data_Output_X_MSB) * compass_scale;
-	float y = CompasReadAxis(hi2c1,Data_Output_Y_MSB) * compass_scale;
-//	float z = CompasReadAxis(hi2c1,Data_Output_Z_MSB) * compass_scale;
-
-	float heading = atan2(x, y);
-	heading += compass_declination_offset_radians;
-
-	// Correct for when signs are reversed.
-	if (heading < 0)
-	  heading += 2 * M_PI;
-
-	// Check for wrap due to addition of declination.
-	if (heading > 2 * M_PI)
-	  heading -= 2 * M_PI;
-
-	// Convert radians to degrees for readability.
-	heading = heading * 180 / M_PI;
-
-
-
-
 
   /* USER CODE END 2 */
 
@@ -555,12 +197,6 @@ int main(void)
   /* USER CODE BEGIN WHILE */
   while (1)
   {
-
-
-
-
-
-
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
@@ -1014,6 +650,7 @@ void Task1msHandler(void *argument)
   /* Infinite loop */
   for(;;)
   {
+    osDelay(1);
   }
   /* USER CODE END Task1msHandler */
 }
@@ -1025,16 +662,15 @@ void Task1msHandler(void *argument)
 * @retval None
 */
 /* USER CODE END Header_Task10msHandler */
-void Task10msHandler(void *argument) {
-	/* USER CODE BEGIN Task10msHandler */
-	/* Infinite loop */
-	for (;;) {
-
-		clLeftW->Calculation();
-		clRightW->Calculation();
-
-	}
-	/* USER CODE END Task10msHandler */
+void Task10msHandler(void *argument)
+{
+  /* USER CODE BEGIN Task10msHandler */
+  /* Infinite loop */
+  for(;;)
+  {
+    osDelay(1);
+  }
+  /* USER CODE END Task10msHandler */
 }
 
 /* USER CODE BEGIN Header_Task100msHandler */
@@ -1044,34 +680,15 @@ void Task10msHandler(void *argument) {
 * @retval None
 */
 /* USER CODE END Header_Task100msHandler */
-void Task100msHandler(void *argument) {
-	/* USER CODE BEGIN Task100msHandler */
-	/* Infinite loop */
-	for (;;) {
-
-
-
-		float sumLeft = 0;
-		float sumRight = 0;
-
-		for (uint8_t i=0;i<ADC_CHANNELS_NUM*ADC_CHANNEL_LENGTH;i +=2) {
-		  sumLeft  = sumLeft  + adcData[i];
-		  sumRight = sumRight + adcData[i+1];
-		}
-		sumLeft   = sumLeft  / ADC_CHANNEL_LENGTH;
-		sumRight  = sumRight / ADC_CHANNEL_LENGTH;
-
-
-		clLeftW->ReadAS5600_Curr(sumLeft);
-		clRightW->ReadAS5600_Curr(sumRight);
-
-
-
-	 	clLeftW->Set_Speed(set_speed);
-	//	clRightW->Set_Speed(set_speed);
-
-	}
-	/* USER CODE END Task100msHandler */
+void Task100msHandler(void *argument)
+{
+  /* USER CODE BEGIN Task100msHandler */
+  /* Infinite loop */
+  for(;;)
+  {
+    osDelay(1);
+  }
+  /* USER CODE END Task100msHandler */
 }
 
 /**
@@ -1091,12 +708,7 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
     HAL_IncTick();
   }
   /* USER CODE BEGIN Callback 1 */
-	if (htim->Instance == TIM2) {
 
-		HAL_GPIO_TogglePin(GPIOC, GPIO_PIN_13);  // мигаем светодиодом
-
-
-	} // end of TIM2
   /* USER CODE END Callback 1 */
 }
 

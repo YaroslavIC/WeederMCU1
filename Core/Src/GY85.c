@@ -1,11 +1,11 @@
 /*
- * GY_85.c
+ * GY85.c
  *
  *  Created on: Mar 1, 2025
  *      Author: HeroPC
  */
 
-#include "GY_85.h"
+#include "GY85.h"
 
 
 float compass_scale;
