@@ -1,4 +1,5 @@
 "./Core/Src/FreeRTOS_CLI.o"
+"./Core/Src/GY_85.o"
 "./Core/Src/cli_app.o"
 "./Core/Src/freertos.o"
 "./Core/Src/main.o"

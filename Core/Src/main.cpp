@@ -97,6 +97,8 @@ public:
 
 	//	uint32_t PWM[31];
 
+	float curr[MAX_ANGLE_WHEEL_ARRAY];
+
 };
 
 /* USER CODE END PTD */
@@ -109,7 +111,8 @@ public:
 #define AS5600_ANGLE_H				0x0E
 #define AS5600_ANGLE_L				0x0F
 
-#define ADC_CHANNELS_NUM   2
+#define ADC_CHANNELS_NUM   			2
+#define ADC_CHANNEL_LENGTH 			10
 
 /* USER CODE END PD */
 
@@ -446,6 +449,9 @@ int main(void)
     /* Starting Error */
     Error_Handler();
   }
+
+
+	HAL_ADC_Start_DMA(&hadc1, (uint32_t*)adcData, ADC_CHANNELS_NUM*ADC_CHANNEL_LENGTH);
 
 
 
@@ -1013,10 +1019,20 @@ void Task100msHandler(void *argument) {
 	for (;;) {
 
 
-		HAL_ADC_Start_DMA(&hadc1, (uint32_t*)adcData, ADC_CHANNELS_NUM*10);
 
-		clLeftW->ReadAS5600();
-		clRightW->ReadAS5600();
+		float sumLeft = 0;
+		float sumRight = 0;
+
+		for (uint8_t i=0;i<ADC_CHANNELS_NUM*ADC_CHANNEL_LENGTH;i +=2) {
+		  sumLeft  = sumLeft  + adcData[i];
+		  sumRight = sumRight + adcData[i+1];
+		}
+		sumLeft   = sumLeft  / ADC_CHANNEL_LENGTH;
+		sumRight  = sumRight / ADC_CHANNEL_LENGTH;
+
+
+		clLeftW->ReadAS5600_Curr(sumLeft);
+		clRightW->ReadAS5600_Curr(sumRight);
 
 
 
