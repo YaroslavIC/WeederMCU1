@@ -110,8 +110,8 @@ public:
 #define AS5600_ANGLE_H				0x0E
 #define AS5600_ANGLE_L				0x0F
 
-#define ADC_CHANNELS_NUM   2
-
+#define ADC_CHANNELS_NUM   			2
+#define ADC_CHANNEL_LENGTH 			50
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -163,8 +163,8 @@ const osThreadAttr_t Task100ms_attributes = {
 
 extern osThreadId_t cmdLineTaskHandle;
 
-uint16_t adcData[ADC_CHANNELS_NUM*10];
-float adcVoltage[ADC_CHANNELS_NUM*10];
+uint16_t adcData[ADC_CHANNELS_NUM*ADC_CHANNEL_LENGTH];
+float adcVoltage[ADC_CHANNELS_NUM*ADC_CHANNEL_LENGTH];
 
 
 WheelData* clLeftW;
@@ -437,6 +437,7 @@ int main(void)
   MX_TIM1_Init();
   MX_SPI2_Init();
   /* USER CODE BEGIN 2 */
+
 
 
 
@@ -994,8 +995,11 @@ void Task10msHandler(void *argument) {
 	/* Infinite loop */
 	for (;;) {
 
+		HAL_ADC_Start_DMA(&hadc1, (uint32_t*)adcData, ADC_CHANNELS_NUM*ADC_CHANNEL_LENGTH);
+
 		clLeftW->Calculation();
 		clRightW->Calculation();
+
 
 	}
 	/* USER CODE END Task10msHandler */
@@ -1012,18 +1016,21 @@ void Task100msHandler(void *argument) {
 	/* USER CODE BEGIN Task100msHandler */
 	/* Infinite loop */
 	for (;;) {
+		float sumLeft = 0;
+		float sumRight = 0;
 
+		for (uint8_t i=0;i<ADC_CHANNELS_NUM*ADC_CHANNEL_LENGTH;i +=2) {
+		  sumLeft  = sumLeft  + adcData[i];
+		  sumRight = sumRight + adcData[i+1];
+		}
+		sumLeft   = sumLeft  / ADC_CHANNEL_LENGTH;
+		sumRight  = sumRight / ADC_CHANNEL_LENGTH;
 
-		HAL_ADC_Start_DMA(&hadc1, (uint32_t*)adcData, ADC_CHANNELS_NUM*10);
-
-		clLeftW->ReadAS5600_Curr(0);
-		clRightW->ReadAS5600_Curr(0);
-
-
+		clLeftW->ReadAS5600_Curr(sumLeft);
+		clRightW->ReadAS5600_Curr(sumRight);
 
 	 	clLeftW->Set_Speed(set_speed);
-	//	clRightW->Set_Speed(set_speed);
-
+		clRightW->Set_Speed(set_speed);
 	}
 	/* USER CODE END Task100msHandler */
 }
