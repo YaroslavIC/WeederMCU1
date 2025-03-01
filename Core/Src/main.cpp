@@ -26,6 +26,7 @@
 #include "task.h"
 #include <string.h>
 #include "math.h"
+#include "GY_85.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -162,6 +163,10 @@ const osThreadAttr_t Task100ms_attributes = {
   .priority = (osPriority_t) osPriorityNormal,
 };
 /* USER CODE BEGIN PV */
+
+extern float compass_scale;
+extern float compass_declination_offset_radians;
+
 
 extern osThreadId_t cmdLineTaskHandle;
 
@@ -468,6 +473,32 @@ int main(void)
 	L_INA_Pin, GPIO_PIN_RESET,
 	GPIOA,
 	L_INB_Pin, GPIO_PIN_RESET, wsRight);
+
+
+	compass_SetDeclination(23, 35, 'E');
+	SetSamplingMode(hi2c1, COMPASS_SAMPLE8 , COMPASS_RATE15, COMPASS_MEASURE_NORMAL);
+	SetScaleMode(hi2c1, COMPASS_SCALE_130);
+	SetMeasureMode(hi2c1,COMPASS_CONTINUOUS);
+
+	float degrees = CompasRead6Axis(hi2c1);
+
+	float x = CompasReadAxis(hi2c1,Data_Output_X_MSB) * compass_scale;
+	float y = CompasReadAxis(hi2c1,Data_Output_Y_MSB) * compass_scale;
+	float z = CompasReadAxis(hi2c1,Data_Output_Z_MSB) * compass_scale;
+
+	float heading = atan2(x, y);
+	heading += compass_declination_offset_radians;
+
+	// Correct for when signs are reversed.
+	if (heading < 0)
+	  heading += 2 * M_PI;
+
+	// Check for wrap due to addition of declination.
+	if (heading > 2 * M_PI)
+	  heading -= 2 * M_PI;
+
+	// Convert radians to degrees for readability.
+	heading = heading * 180 / M_PI;
 
 
 
