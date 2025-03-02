@@ -27,6 +27,8 @@
 #include <string.h>
 #include "math.h"
 #include "flash_utils.h"
+#include "compass.h"
+#include "ADXL345.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -34,7 +36,7 @@
 #define  MAX_ANGLE_WHEEL_ARRAY 20
 enum DirectionEnum {WH_CW, WH_CCW,WH_STOP};
 enum WheelSide {wsLeft,wsRight,wsNone};
-
+#define MAX_COMPASS_ARRAY 50
 
 //MPU9250_t mpu9250;
 //uint8_t isDeviceConnected = 0;
@@ -178,6 +180,10 @@ float adcVoltage[ADC_CHANNELS_NUM*ADC_CHANNEL_LENGTH];
 WheelData* clLeftW;
 WheelData* clRightW;
 
+float G,ValX,ValY,ValZ;
+
+int16_t temperaure;
+
 extern SFlash_data_storage FS;
 
 float delta_angle;
@@ -185,6 +191,8 @@ float delta_angle;
 float set_speed;
 
 
+int16_t state[128];
+uint8_t compass_data[16];
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -506,6 +514,15 @@ void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef* hadc)
 }
 
 
+int16_t MagX[MAX_COMPASS_ARRAY];
+int16_t MagY[MAX_COMPASS_ARRAY];
+int16_t MagZ[MAX_COMPASS_ARRAY];
+uint16_t CompassIndex;
+
+int16_t Result_MagX,Result_MagY,Result_MagZ;
+
+float Heading;
+
 
 /* USER CODE END 0 */
 
@@ -550,6 +567,15 @@ int main(void)
 //  FS.PWMSpeedLength = 19;
 //  FLASH_SaveSetting();
 //  FLASH_LoadSetting();
+
+
+  ADXL345_Conf(hi2c1);
+  ADXL344_SetMaxG(hi2c1,2);
+  ADXL345_Calibartion(hi2c1,1000);
+  ADXL345_Read_G(hi2c1, &ValX, &ValY, &ValZ);
+
+
+  QMC5883L_Initialize(hi2c1,MODE_CONTROL_CONTINUOUS,OUTPUT_DATA_RATE_200HZ,FULL_SCALE_2G,OVER_SAMPLE_RATIO_512);
 
 
 
@@ -1103,20 +1129,39 @@ void Task1msHandler(void *argument)
 void Task10msHandler(void *argument) {
 	/* USER CODE BEGIN Task10msHandler */
 
-	   TickType_t xLastWakeTime;
-	    const TickType_t xFrequency = 10 / portTICK_PERIOD_MS;
-	    xLastWakeTime = xTaskGetTickCount();
+	TickType_t xLastWakeTime;
+	const TickType_t xFrequency = 10 / portTICK_PERIOD_MS;
+	xLastWakeTime = xTaskGetTickCount();
 
 	/* Infinite loop */
 	for (;;) {
 
-		HAL_ADC_Start_DMA(&hadc1, (uint32_t*)adcData, ADC_CHANNELS_NUM*ADC_CHANNEL_LENGTH);
+		HAL_ADC_Start_DMA(&hadc1, (uint32_t*) adcData,
+		ADC_CHANNELS_NUM * ADC_CHANNEL_LENGTH);
 
 		clLeftW->Calculation();
 		clRightW->Calculation();
 
-		vTaskDelayUntil(&xLastWakeTime, xFrequency);
+		QMC5883L_Read_Data(hi2c1, &MagX[CompassIndex % MAX_COMPASS_ARRAY],
+				&MagY[CompassIndex % MAX_COMPASS_ARRAY],
+				&MagZ[CompassIndex % MAX_COMPASS_ARRAY]);
+		CompassIndex++;
 
+		int32_t tResult_MagX = 0;
+		int32_t tResult_MagY = 0;
+		int32_t tResult_MagZ = 0;
+
+		for (uint16_t i = 0; i < MAX_COMPASS_ARRAY; i++) {
+			tResult_MagX = tResult_MagX + MagX[i];
+			tResult_MagY = tResult_MagY + MagY[i];
+			tResult_MagZ = tResult_MagZ + MagZ[i];
+		}
+
+		Result_MagX = (int16_t) tResult_MagX / MAX_COMPASS_ARRAY;
+		Result_MagY = (int16_t) tResult_MagY / MAX_COMPASS_ARRAY;
+		Result_MagZ = (int16_t) tResult_MagZ / MAX_COMPASS_ARRAY;
+
+		vTaskDelayUntil(&xLastWakeTime, xFrequency);
 
 	}
 	/* USER CODE END Task10msHandler */
@@ -1141,6 +1186,9 @@ void Task100msHandler(void *argument) {
 	for (;;) {
 		float sumLeft = 0;
 		float sumRight = 0;
+
+
+		Heading = QMC5883L_Heading(Result_MagX,Result_MagY,Result_MagZ)*180/3.14159;
 
 		for (uint8_t i=0;i<ADC_CHANNELS_NUM*ADC_CHANNEL_LENGTH-2;i +=2) {
 		  sumLeft  = sumLeft  + adcData[i];

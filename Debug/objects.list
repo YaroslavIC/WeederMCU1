@@ -1,5 +1,7 @@
+"./Core/Src/ADXL345.o"
 "./Core/Src/FreeRTOS_CLI.o"
 "./Core/Src/cli_app.o"
+"./Core/Src/compass.o"
 "./Core/Src/flash_utils.o"
 "./Core/Src/freertos.o"
 "./Core/Src/main.o"
