@@ -26,6 +26,7 @@
 #include "task.h"
 #include <string.h>
 #include "math.h"
+#include "flash_utils.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -37,6 +38,7 @@ enum WheelSide {wsLeft,wsRight,wsNone};
 
 //MPU9250_t mpu9250;
 //uint8_t isDeviceConnected = 0;
+
 
  class WheelData {
 private:
@@ -76,7 +78,7 @@ public:
 			enum WheelSide WS_);
 
 	void ReadAS5600_Curr(float curr_) ;
-	void Set_Speed(float Speed_);
+	void Set_Speed(float Speed_, int PIDmode_);
 	void Calculation(void);
 
 	float Current_Speed, Target_Speed;
@@ -86,15 +88,21 @@ public:
 	float Disired_Target_diff[MAX_ANGLE_WHEEL_ARRAY];
 	float curr[MAX_ANGLE_WHEEL_ARRAY];
 
+	float Derror ;
+
+
 	//float averspeed;	//,turns_left,prior_quadrant,current_quadrant;
 	uint32_t PWM_Channel;
-	float PWM_Value, PID_value_P, PID_value_I;
+	float PWM_Value;
+	float PID_value_P, PID_value_I, PID_value_D;
 
 //	uint32_t speed_priortime;
 //	int32_t delta_PWM;
 	//float delta_speed;
 
 	float PID_P, PID_I, PID_D, PID_sum_I;
+
+	int PIDMode;
 
 	//	uint32_t PWM[31];
 
@@ -170,6 +178,9 @@ float adcVoltage[ADC_CHANNELS_NUM*ADC_CHANNEL_LENGTH];
 WheelData* clLeftW;
 WheelData* clRightW;
 
+extern SFlash_data_storage FS;
+
+float delta_angle;
 
 float set_speed;
 
@@ -235,12 +246,14 @@ WheelData::WheelData(
 	HAL_TIM_PWM_Start(&htim, PWM_Channel);
 	__HAL_TIM_SET_COMPARE(&htim, PWM_Channel, 0);
 
-	PID_P = 0.01;
+	PID_P = 0.1;
 	PID_I = 0;
 	PID_D = 0;
 
 	Target_Speed = 0;
 	Current_Speed = 0;
+
+	PWM_Value = 0;
 
 }
 
@@ -251,18 +264,94 @@ void WheelData::ReadAS5600_Curr(float curr_) // pulling 0.5 ms
 	HAL_I2C_Mem_Read(&hi2c, (I2C_AS5600 << 1), AS5600_ANGLE_H,
 			I2C_MEMADD_SIZE_8BIT, (uint8_t*) &regData, 2, 0x10000);
 
-	float tmpangle = ((float) (((uint16_t) regData[0] << 8
-			| (uint16_t) regData[1]) & (uint16_t) 0xFFF)) / 4096 * 360;
+
+	float tmpangle =  roundf(((float) (((uint16_t) regData[0] << 8
+			| (uint16_t) regData[1]) & (uint16_t) 0xFFF)) / 4096 * 360);
 
 	uint32_t tmpmsec = HAL_GetTick();
 
 
 
+	if (Target_Speed > 0) {
 
-	float tmpCurrent_Speed = fabsf(
+		if (ws == wsLeft) {
+
+			if (Direction == WH_CW) {
+
+				if (tmpangle < angle[MAX_ANGLE_WHEEL_ARRAY - 1]) {
+					delta_angle = (360 - angle[MAX_ANGLE_WHEEL_ARRAY - 1])
+							+ tmpangle;
+				} else {
+					delta_angle = angle[MAX_ANGLE_WHEEL_ARRAY - 1] - tmpangle;
+				}
+			};
+
+
+			if (Direction == WH_CCW) {
+
+				if (tmpangle > angle[MAX_ANGLE_WHEEL_ARRAY - 1]) {
+					delta_angle = angle[MAX_ANGLE_WHEEL_ARRAY - 1]
+							+ (360 - tmpangle);
+				} else {
+					delta_angle = angle[MAX_ANGLE_WHEEL_ARRAY - 1] - tmpangle;
+				}
+			};
+
+		};
+
+		if (ws == wsRight) {
+
+				if (Direction == WH_CW) {
+
+					if (tmpangle > angle[MAX_ANGLE_WHEEL_ARRAY - 1]) {
+						delta_angle = angle[MAX_ANGLE_WHEEL_ARRAY - 1]
+								+ (360 - tmpangle);
+					} else {
+						delta_angle = angle[MAX_ANGLE_WHEEL_ARRAY - 1]
+								- tmpangle;
+					}
+				};
+
+				if (Direction == WH_CCW) {
+					if (tmpangle < angle[MAX_ANGLE_WHEEL_ARRAY - 1]) {
+						delta_angle = (360 - angle[MAX_ANGLE_WHEEL_ARRAY - 1])
+								+ tmpangle;
+					} else {
+						delta_angle = angle[MAX_ANGLE_WHEEL_ARRAY - 1] - tmpangle;
+					}
+
+				}
+
+			}
+
+			if (Direction == WH_STOP) {
+				tmpangle = angle[MAX_ANGLE_WHEEL_ARRAY - 1];
+				delta_angle = 0;
+			}
+
+		} else {
+			tmpangle = angle[MAX_ANGLE_WHEEL_ARRAY - 1];
+			delta_angle = 0;
+		};
+
+
+
+
+
+	float tmpCurrent_Speed = (
+			(1000 * fabsf(delta_angle))
+					/ (tmpmsec - time_ms_wheel[MAX_ANGLE_WHEEL_ARRAY - 1]))
+			/ 360 * 60;
+
+
+/*
+	float tmpCurrent_Speed = (
 			(1000 * (tmpangle - angle[MAX_ANGLE_WHEEL_ARRAY - 1]))
 					/ (tmpmsec - time_ms_wheel[MAX_ANGLE_WHEEL_ARRAY - 1]))
 			/ 360 * 60;
+
+
+	*/
 
 	// сдвигаем в массиве все в сторону 0, в последнюю ячейку запишим новые данные
 	for (uint8_t i = 1; i < MAX_ANGLE_WHEEL_ARRAY; i++) {
@@ -305,7 +394,9 @@ void WheelData::ReadAS5600_Curr(float curr_) // pulling 0.5 ms
 
 
 
-void WheelData::Set_Speed(float Speed_) {
+void WheelData::Set_Speed(float Speed_, int PIDmode_)
+{
+    PIDMode = PIDmode_;
 
 	Target_Speed = fabsf(Speed_);
 
@@ -314,12 +405,12 @@ void WheelData::Set_Speed(float Speed_) {
 		if (Speed_ > 0) {
 			PinState_INA = GPIO_PIN_RESET;
 			PinState_INB = GPIO_PIN_SET;
-			Direction = WH_CW;
+			Direction = WH_CCW;
 		};
 		if (Speed_ < 0) {
 			PinState_INA = GPIO_PIN_SET;
 			PinState_INB = GPIO_PIN_RESET;
-			Direction = WH_CCW;
+			Direction = WH_CW;
 		};
 
 		if (Speed_  == 0) {
@@ -334,12 +425,12 @@ void WheelData::Set_Speed(float Speed_) {
 		if (Speed_  < 0) {
 			PinState_INA = GPIO_PIN_RESET;
 			PinState_INB = GPIO_PIN_SET;
-			Direction = WH_CW;
+			Direction = WH_CCW;
 		};
 		if (Speed_  > 0) {
 			PinState_INA = GPIO_PIN_SET;
 			PinState_INB = GPIO_PIN_RESET;
-			Direction = WH_CCW;
+			Direction = WH_CW;
 		};
 
 		if (Speed_  == 0) {
@@ -358,21 +449,37 @@ void WheelData::Set_Speed(float Speed_) {
 void WheelData::Calculation(void)
 {
 	if (fabsf(Target_Speed) > 0) {
-		PID_value_P =  PID_P * (Target_Speed - Current_Speed);
 
-		if (PID_value_P > 20)  { PID_value_P = 20;  };
-		if (PID_value_P < -20) { PID_value_P = -20;	};
+		PID_value_P = PID_P * (Target_Speed - Current_Speed);
 
 		PID_sum_I = 0;
-		for (uint8_t i = 1; i < MAX_ANGLE_WHEEL_ARRAY; i++) {
+		for (uint8_t i = 0; i < MAX_ANGLE_WHEEL_ARRAY; i++) {
 			PID_sum_I = PID_sum_I + Disired_Target_diff[i];
 		}
+		PID_value_I = PID_I * PID_sum_I;
 
-		PWM_Value = PWM_Value + PID_value_P  + PID_I * PID_sum_I;
+	//	PID_value_I = PID_I * Disired_Target_diff[MAX_ANGLE_WHEEL_ARRAY];
 
-		if (PWM_Value < 0)     {PWM_Value = 0;	};
-		if (PWM_Value > 50000) {PWM_Value = 50000; };
+		if ((time_ms_wheel[MAX_ANGLE_WHEEL_ARRAY]
+				- time_ms_wheel[MAX_ANGLE_WHEEL_ARRAY - 1]) > 0) {
+			Derror = (Disired_Target_diff[MAX_ANGLE_WHEEL_ARRAY]
+					- Disired_Target_diff[MAX_ANGLE_WHEEL_ARRAY - 1])
+					/ (time_ms_wheel[MAX_ANGLE_WHEEL_ARRAY]
+							- time_ms_wheel[MAX_ANGLE_WHEEL_ARRAY - 1]);
+		} else {
+			Derror = 0;
+		};
 
+		PID_value_D = PID_D * Derror;
+
+		PWM_Value = PWM_Value + PID_value_P + PID_value_I + PID_value_D;
+
+		if (PWM_Value < 0) {
+			PWM_Value = 0;
+		};
+		if (PWM_Value > 50000) {
+			PWM_Value = 50000;
+		};
 
 	} else {
 
@@ -380,9 +487,11 @@ void WheelData::Calculation(void)
 
 	}
 
-	__HAL_TIM_SET_COMPARE(&htim, PWM_Channel,
-			(uint32_t) PWM_Value);
+	__HAL_TIM_SET_COMPARE(&htim, PWM_Channel, (uint32_t ) PWM_Value);
 }
+
+
+
 
 
 void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef* hadc)
@@ -438,8 +547,9 @@ int main(void)
   MX_SPI2_Init();
   /* USER CODE BEGIN 2 */
 
-
-
+//  FS.PWMSpeedLength = 19;
+//  FLASH_SaveSetting();
+//  FLASH_LoadSetting();
 
 
 
@@ -992,6 +1102,11 @@ void Task1msHandler(void *argument)
 /* USER CODE END Header_Task10msHandler */
 void Task10msHandler(void *argument) {
 	/* USER CODE BEGIN Task10msHandler */
+
+	   TickType_t xLastWakeTime;
+	    const TickType_t xFrequency = 10 / portTICK_PERIOD_MS;
+	    xLastWakeTime = xTaskGetTickCount();
+
 	/* Infinite loop */
 	for (;;) {
 
@@ -999,6 +1114,8 @@ void Task10msHandler(void *argument) {
 
 		clLeftW->Calculation();
 		clRightW->Calculation();
+
+		vTaskDelayUntil(&xLastWakeTime, xFrequency);
 
 
 	}
@@ -1014,12 +1131,18 @@ void Task10msHandler(void *argument) {
 /* USER CODE END Header_Task100msHandler */
 void Task100msHandler(void *argument) {
 	/* USER CODE BEGIN Task100msHandler */
+
+	   TickType_t xLastWakeTime;
+	    const TickType_t xFrequency = 100 / portTICK_PERIOD_MS;
+	    xLastWakeTime = xTaskGetTickCount();
+
+
 	/* Infinite loop */
 	for (;;) {
 		float sumLeft = 0;
 		float sumRight = 0;
 
-		for (uint8_t i=0;i<ADC_CHANNELS_NUM*ADC_CHANNEL_LENGTH;i +=2) {
+		for (uint8_t i=0;i<ADC_CHANNELS_NUM*ADC_CHANNEL_LENGTH-2;i +=2) {
 		  sumLeft  = sumLeft  + adcData[i];
 		  sumRight = sumRight + adcData[i+1];
 		}
@@ -1029,8 +1152,13 @@ void Task100msHandler(void *argument) {
 		clLeftW->ReadAS5600_Curr(sumLeft);
 		clRightW->ReadAS5600_Curr(sumRight);
 
-	 	clLeftW->Set_Speed(set_speed);
-		clRightW->Set_Speed(set_speed);
+	 	clLeftW->Set_Speed(set_speed,0);
+		clRightW->Set_Speed(set_speed,0);
+
+		HAL_GPIO_TogglePin(GPIOC, GPIO_PIN_13);  // мигаем светодиодом
+
+		 vTaskDelayUntil(&xLastWakeTime, xFrequency);
+
 	}
 	/* USER CODE END Task100msHandler */
 }
@@ -1054,7 +1182,6 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
   /* USER CODE BEGIN Callback 1 */
 	if (htim->Instance == TIM2) {
 
-		HAL_GPIO_TogglePin(GPIOC, GPIO_PIN_13);  // мигаем светодиодом
 
 
 	} // end of TIM2
