@@ -45,7 +45,7 @@ Core/Src/main.o: ../Core/Src/main.cpp ../Core/Inc/main.h \
  ../Middlewares/Third_Party/FreeRTOS/Source/include/list.h \
  ../Middlewares/Third_Party/FreeRTOS/Source/CMSIS_RTOS_V2/cmsis_os2.h \
  ../Core/Inc/cli_app.h ../Core/Inc/flash_utils.h ../Core/Inc/compass.h \
- ../Core/Inc/main.h ../Core/Inc/ADXL345.h ../Core/Inc/Wheel.h
+ ../Core/Inc/main.h ../Core/Inc/ADXL345.h ../Core/Inc/Wheel.hpp
 ../Core/Inc/main.h:
 ../Drivers/STM32F4xx_HAL_Driver/Inc/stm32f4xx_hal.h:
 ../Core/Inc/stm32f4xx_hal_conf.h:
@@ -97,4 +97,4 @@ Core/Src/main.o: ../Core/Src/main.cpp ../Core/Inc/main.h \
 ../Core/Inc/compass.h:
 ../Core/Inc/main.h:
 ../Core/Inc/ADXL345.h:
-../Core/Inc/Wheel.h:
+../Core/Inc/Wheel.hpp:

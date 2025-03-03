@@ -29,7 +29,7 @@
 #include "flash_utils.h"
 #include "compass.h"
 #include "ADXL345.h"
-#include "Wheel.h"
+#include "Wheel.hpp"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -65,17 +65,12 @@ SPI_HandleTypeDef hspi2;
 TIM_HandleTypeDef htim1;
 TIM_HandleTypeDef htim2;
 
+UART_HandleTypeDef huart1;
+
 /* Definitions for defaultTask */
 osThreadId_t defaultTaskHandle;
 const osThreadAttr_t defaultTask_attributes = {
   .name = "defaultTask",
-  .stack_size = 128 * 4,
-  .priority = (osPriority_t) osPriorityNormal,
-};
-/* Definitions for Task1ms */
-osThreadId_t Task1msHandle;
-const osThreadAttr_t Task1ms_attributes = {
-  .name = "Task1ms",
   .stack_size = 128 * 4,
   .priority = (osPriority_t) osPriorityNormal,
 };
@@ -100,7 +95,7 @@ extern osThreadId_t cmdLineTaskHandle;
 uint16_t adcData[ADC_CHANNELS_NUM*ADC_CHANNEL_LENGTH];
 float adcVoltage[ADC_CHANNELS_NUM*ADC_CHANNEL_LENGTH];
 
-UART_HandleTypeDef huart1;
+
 
 WheelData* clLeftW;
 WheelData* clRightW;
@@ -129,8 +124,8 @@ static void MX_I2C2_Init(void);
 static void MX_TIM2_Init(void);
 static void MX_TIM1_Init(void);
 static void MX_SPI2_Init(void);
+static void MX_USART1_UART_Init(void);
 void StartDefaultTask(void *argument);
-void Task1msHandler(void *argument);
 void Task10msHandler(void *argument);
 void Task100msHandler(void *argument);
 
@@ -172,33 +167,6 @@ float Heading;
   * @param None
   * @retval None
   */
-static void MX_USART1_UART_Init(void)
-{
-
-  /* USER CODE BEGIN USART1_Init 0 */
-
-  /* USER CODE END USART1_Init 0 */
-
-  /* USER CODE BEGIN USART1_Init 1 */
-
-  /* USER CODE END USART1_Init 1 */
-  huart1.Instance = USART1;
-  huart1.Init.BaudRate = 115200;
-  huart1.Init.WordLength = UART_WORDLENGTH_8B;
-  huart1.Init.StopBits = UART_STOPBITS_1;
-  huart1.Init.Parity = UART_PARITY_NONE;
-  huart1.Init.Mode = UART_MODE_TX_RX;
-  huart1.Init.HwFlowCtl = UART_HWCONTROL_NONE;
-  huart1.Init.OverSampling = UART_OVERSAMPLING_16;
-  if (HAL_UART_Init(&huart1) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  /* USER CODE BEGIN USART1_Init 2 */
-
-  /* USER CODE END USART1_Init 2 */
-
-}
 
 
 /* USER CODE END 0 */
@@ -239,13 +207,14 @@ int main(void)
   MX_TIM2_Init();
   MX_TIM1_Init();
   MX_SPI2_Init();
+  MX_USART1_UART_Init();
   /* USER CODE BEGIN 2 */
 
 //  FS.PWMSpeedLength = 19;
 //  FLASH_SaveSetting();
 //  FLASH_LoadSetting();
 
-  MX_USART1_UART_Init();
+
 
 
   ADXL345_Conf(hi2c1);
@@ -254,7 +223,7 @@ int main(void)
   ADXL345_Read_G(hi2c1, &ValX, &ValY, &ValZ);
 
 
-  HAL_UART_Transmit(&huart1, (uint8_t*)"Hello World\n", 12,100);
+  HAL_UART_Transmit(&huart1, (uint8_t*)"Wheel MCU 1.0 Starting .....\n", 12,100);
 
 
   QMC5883L_Initialize(hi2c1,MODE_CONTROL_CONTINUOUS,OUTPUT_DATA_RATE_200HZ,FULL_SCALE_2G,OVER_SAMPLE_RATIO_512);
@@ -312,9 +281,6 @@ int main(void)
   /* creation of defaultTask */
   defaultTaskHandle = osThreadNew(StartDefaultTask, NULL, &defaultTask_attributes);
 
-  /* creation of Task1ms */
-  Task1msHandle = osThreadNew(Task1msHandler, NULL, &Task1ms_attributes);
-
   /* creation of Task10ms */
   Task10msHandle = osThreadNew(Task10msHandler, NULL, &Task10ms_attributes);
 
@@ -371,7 +337,12 @@ void SystemClock_Config(void)
   RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSI;
   RCC_OscInitStruct.HSIState = RCC_HSI_ON;
   RCC_OscInitStruct.HSICalibrationValue = RCC_HSICALIBRATION_DEFAULT;
-  RCC_OscInitStruct.PLL.PLLState = RCC_PLL_NONE;
+  RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
+  RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSI;
+  RCC_OscInitStruct.PLL.PLLM = 8;
+  RCC_OscInitStruct.PLL.PLLN = 84;
+  RCC_OscInitStruct.PLL.PLLP = RCC_PLLP_DIV2;
+  RCC_OscInitStruct.PLL.PLLQ = 4;
   if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
   {
     Error_Handler();
@@ -381,12 +352,12 @@ void SystemClock_Config(void)
   */
   RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK|RCC_CLOCKTYPE_SYSCLK
                               |RCC_CLOCKTYPE_PCLK1|RCC_CLOCKTYPE_PCLK2;
-  RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_HSI;
+  RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_PLLCLK;
   RCC_ClkInitStruct.AHBCLKDivider = RCC_SYSCLK_DIV1;
-  RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV1;
+  RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV2;
   RCC_ClkInitStruct.APB2CLKDivider = RCC_HCLK_DIV1;
 
-  if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_0) != HAL_OK)
+  if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_2) != HAL_OK)
   {
     Error_Handler();
   }
@@ -413,7 +384,7 @@ static void MX_ADC1_Init(void)
   /** Configure the global features of the ADC (Clock, Resolution, Data Alignment and number of conversion)
   */
   hadc1.Instance = ADC1;
-  hadc1.Init.ClockPrescaler = ADC_CLOCK_SYNC_PCLK_DIV2;
+  hadc1.Init.ClockPrescaler = ADC_CLOCK_SYNC_PCLK_DIV4;
   hadc1.Init.Resolution = ADC_RESOLUTION_12B;
   hadc1.Init.ScanConvMode = ENABLE;
   hadc1.Init.ContinuousConvMode = DISABLE;
@@ -684,6 +655,39 @@ static void MX_TIM2_Init(void)
 }
 
 /**
+  * @brief USART1 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_USART1_UART_Init(void)
+{
+
+  /* USER CODE BEGIN USART1_Init 0 */
+
+  /* USER CODE END USART1_Init 0 */
+
+  /* USER CODE BEGIN USART1_Init 1 */
+
+  /* USER CODE END USART1_Init 1 */
+  huart1.Instance = USART1;
+  huart1.Init.BaudRate = 115200;
+  huart1.Init.WordLength = UART_WORDLENGTH_8B;
+  huart1.Init.StopBits = UART_STOPBITS_1;
+  huart1.Init.Parity = UART_PARITY_NONE;
+  huart1.Init.Mode = UART_MODE_TX_RX;
+  huart1.Init.HwFlowCtl = UART_HWCONTROL_NONE;
+  huart1.Init.OverSampling = UART_OVERSAMPLING_16;
+  if (HAL_UART_Init(&huart1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN USART1_Init 2 */
+
+  /* USER CODE END USART1_Init 2 */
+
+}
+
+/**
   * Enable DMA controller clock
   */
 static void MX_DMA_Init(void)
@@ -784,23 +788,6 @@ void StartDefaultTask(void *argument)
   /* USER CODE END 5 */
 }
 
-/* USER CODE BEGIN Header_Task1msHandler */
-/**
-* @brief Function implementing the Task1ms thread.
-* @param argument: Not used
-* @retval None
-*/
-/* USER CODE END Header_Task1msHandler */
-void Task1msHandler(void *argument)
-{
-  /* USER CODE BEGIN Task1msHandler */
-  /* Infinite loop */
-  for(;;)
-  {
-  }
-  /* USER CODE END Task1msHandler */
-}
-
 /* USER CODE BEGIN Header_Task10msHandler */
 /**
 * @brief Function implementing the Task10ms thread.
@@ -808,8 +795,9 @@ void Task1msHandler(void *argument)
 * @retval None
 */
 /* USER CODE END Header_Task10msHandler */
-void Task10msHandler(void *argument) {
-	/* USER CODE BEGIN Task10msHandler */
+void Task10msHandler(void *argument)
+{
+  /* USER CODE BEGIN Task10msHandler */
 
 	TickType_t xLastWakeTime;
 	const TickType_t xFrequency = 10 / portTICK_PERIOD_MS;
@@ -846,7 +834,7 @@ void Task10msHandler(void *argument) {
 		vTaskDelayUntil(&xLastWakeTime, xFrequency);
 
 	}
-	/* USER CODE END Task10msHandler */
+  /* USER CODE END Task10msHandler */
 }
 
 /* USER CODE BEGIN Header_Task100msHandler */
@@ -856,8 +844,9 @@ void Task10msHandler(void *argument) {
 * @retval None
 */
 /* USER CODE END Header_Task100msHandler */
-void Task100msHandler(void *argument) {
-	/* USER CODE BEGIN Task100msHandler */
+void Task100msHandler(void *argument)
+{
+  /* USER CODE BEGIN Task100msHandler */
 
 	   TickType_t xLastWakeTime;
 	    const TickType_t xFrequency = 100 / portTICK_PERIOD_MS;
@@ -890,7 +879,7 @@ void Task100msHandler(void *argument) {
 		 vTaskDelayUntil(&xLastWakeTime, xFrequency);
 
 	}
-	/* USER CODE END Task100msHandler */
+  /* USER CODE END Task100msHandler */
 }
 
 /**
