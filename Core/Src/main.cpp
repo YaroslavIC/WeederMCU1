@@ -29,99 +29,23 @@
 #include "flash_utils.h"
 #include "compass.h"
 #include "ADXL345.h"
+#include "Wheel.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
 /* USER CODE BEGIN PTD */
-#define  MAX_ANGLE_WHEEL_ARRAY 20
-enum DirectionEnum {WH_CW, WH_CCW,WH_STOP};
-enum WheelSide {wsLeft,wsRight,wsNone};
-#define MAX_COMPASS_ARRAY 50
+
 
 //MPU9250_t mpu9250;
 //uint8_t isDeviceConnected = 0;
 
 
- class WheelData {
-private:
-	enum DirectionEnum Direction;
-
-	TIM_HandleTypeDef htim;
-	I2C_HandleTypeDef hi2c;
-
-	GPIO_TypeDef* GPIOx_INA;
-	uint16_t GPIO_Pin_INA;
-	GPIO_PinState PinState_INA;
-
-	GPIO_TypeDef* GPIOx_INB;
-	uint16_t GPIO_Pin_INB;
-	GPIO_PinState PinState_INB;
-
-	enum WheelSide ws;
-
-public:
-	WheelData(
-
-			I2C_HandleTypeDef hi2c_,
-			TIM_HandleTypeDef htim_,
-
-			uint16_t  PWM_Channel_,
-
-			GPIO_TypeDef* GPIOx_INA_,
-			uint16_t GPIO_Pin_INA_,
-			GPIO_PinState PinState_INA_,
-
-
-			GPIO_TypeDef* GPIOx_INB_,
-			uint16_t GPIO_Pin_INB_,
-			GPIO_PinState PinState_INB_,
-
-
-			enum WheelSide WS_);
-
-	void ReadAS5600_Curr(float curr_) ;
-	void Set_Speed(float Speed_, int PIDmode_);
-	void Calculation(void);
-
-	float Current_Speed, Target_Speed;
-	uint32_t time_ms_wheel[MAX_ANGLE_WHEEL_ARRAY];
-	double angle[MAX_ANGLE_WHEEL_ARRAY];
-	float speed[MAX_ANGLE_WHEEL_ARRAY];
-	float Disired_Target_diff[MAX_ANGLE_WHEEL_ARRAY];
-	float curr[MAX_ANGLE_WHEEL_ARRAY];
-
-	float Derror ;
-
-
-	//float averspeed;	//,turns_left,prior_quadrant,current_quadrant;
-	uint32_t PWM_Channel;
-	float PWM_Value;
-	float PID_value_P, PID_value_I, PID_value_D;
-
-//	uint32_t speed_priortime;
-//	int32_t delta_PWM;
-	//float delta_speed;
-
-	float PID_P, PID_I, PID_D, PID_sum_I;
-
-	int PIDMode;
-
-	//	uint32_t PWM[31];
-
-};
 
 /* USER CODE END PTD */
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-#define I2C_AS5600					0x36
-#define AS5600_RAW_ANGLE_H			0x0C
-#define AS5600_RAW_ANGLE_L			0x0D
-#define AS5600_ANGLE_H				0x0E
-#define AS5600_ANGLE_L				0x0F
 
-#define ADC_CHANNELS_NUM   			2
-#define ADC_CHANNEL_LENGTH 			50
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -176,6 +100,7 @@ extern osThreadId_t cmdLineTaskHandle;
 uint16_t adcData[ADC_CHANNELS_NUM*ADC_CHANNEL_LENGTH];
 float adcVoltage[ADC_CHANNELS_NUM*ADC_CHANNEL_LENGTH];
 
+UART_HandleTypeDef huart1;
 
 WheelData* clLeftW;
 WheelData* clRightW;
@@ -186,7 +111,6 @@ int16_t temperaure;
 
 extern SFlash_data_storage FS;
 
-float delta_angle;
 
 float set_speed;
 
@@ -216,288 +140,6 @@ void Task100msHandler(void *argument);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
-WheelData::WheelData(
-
-		I2C_HandleTypeDef hi2c_,
-		TIM_HandleTypeDef htim_,
-
-		uint16_t    PWM_Channel_,
-
-		GPIO_TypeDef *GPIOx_INA_,
-		uint16_t GPIO_Pin_INA_,
-		GPIO_PinState PinState_INA_,
-
-		GPIO_TypeDef *GPIOx_INB_,
-		uint16_t GPIO_Pin_INB_,
-		GPIO_PinState PinState_INB_,
-
-		WheelSide WS_)
-
-{
-
-	hi2c = hi2c_;
-
-	htim = htim_;
-
-	PWM_Channel = PWM_Channel_;
-
-	GPIOx_INA = GPIOx_INA_;
-	GPIO_Pin_INA = GPIO_Pin_INA_;
-	PinState_INA = PinState_INA_;
-
-	GPIOx_INB = GPIOx_INB_;
-	GPIO_Pin_INB = GPIO_Pin_INB_;
-	PinState_INB = PinState_INB_;
-
-	ws = WS_;
-
-	HAL_TIM_PWM_Start(&htim, PWM_Channel);
-	__HAL_TIM_SET_COMPARE(&htim, PWM_Channel, 0);
-
-	PID_P = 0.1;
-	PID_I = 0;
-	PID_D = 0;
-
-	Target_Speed = 0;
-	Current_Speed = 0;
-
-	PWM_Value = 0;
-
-}
-
-void WheelData::ReadAS5600_Curr(float curr_) // pulling 0.5 ms
-		{
-	uint8_t regData[2];
-
-	HAL_I2C_Mem_Read(&hi2c, (I2C_AS5600 << 1), AS5600_ANGLE_H,
-			I2C_MEMADD_SIZE_8BIT, (uint8_t*) &regData, 2, 0x10000);
-
-
-	float tmpangle =  roundf(((float) (((uint16_t) regData[0] << 8
-			| (uint16_t) regData[1]) & (uint16_t) 0xFFF)) / 4096 * 360);
-
-	uint32_t tmpmsec = HAL_GetTick();
-
-
-
-	if (Target_Speed > 0) {
-
-		if (ws == wsLeft) {
-
-			if (Direction == WH_CW) {
-
-				if (tmpangle < angle[MAX_ANGLE_WHEEL_ARRAY - 1]) {
-					delta_angle = (360 - angle[MAX_ANGLE_WHEEL_ARRAY - 1])
-							+ tmpangle;
-				} else {
-					delta_angle = angle[MAX_ANGLE_WHEEL_ARRAY - 1] - tmpangle;
-				}
-			};
-
-
-			if (Direction == WH_CCW) {
-
-				if (tmpangle > angle[MAX_ANGLE_WHEEL_ARRAY - 1]) {
-					delta_angle = angle[MAX_ANGLE_WHEEL_ARRAY - 1]
-							+ (360 - tmpangle);
-				} else {
-					delta_angle = angle[MAX_ANGLE_WHEEL_ARRAY - 1] - tmpangle;
-				}
-			};
-
-		};
-
-		if (ws == wsRight) {
-
-				if (Direction == WH_CW) {
-
-					if (tmpangle > angle[MAX_ANGLE_WHEEL_ARRAY - 1]) {
-						delta_angle = angle[MAX_ANGLE_WHEEL_ARRAY - 1]
-								+ (360 - tmpangle);
-					} else {
-						delta_angle = angle[MAX_ANGLE_WHEEL_ARRAY - 1]
-								- tmpangle;
-					}
-				};
-
-				if (Direction == WH_CCW) {
-					if (tmpangle < angle[MAX_ANGLE_WHEEL_ARRAY - 1]) {
-						delta_angle = (360 - angle[MAX_ANGLE_WHEEL_ARRAY - 1])
-								+ tmpangle;
-					} else {
-						delta_angle = angle[MAX_ANGLE_WHEEL_ARRAY - 1] - tmpangle;
-					}
-
-				}
-
-			}
-
-			if (Direction == WH_STOP) {
-				tmpangle = angle[MAX_ANGLE_WHEEL_ARRAY - 1];
-				delta_angle = 0;
-			}
-
-		} else {
-			tmpangle = angle[MAX_ANGLE_WHEEL_ARRAY - 1];
-			delta_angle = 0;
-		};
-
-
-
-
-
-	float tmpCurrent_Speed = (
-			(1000 * fabsf(delta_angle))
-					/ (tmpmsec - time_ms_wheel[MAX_ANGLE_WHEEL_ARRAY - 1]))
-			/ 360 * 60;
-
-
-/*
-	float tmpCurrent_Speed = (
-			(1000 * (tmpangle - angle[MAX_ANGLE_WHEEL_ARRAY - 1]))
-					/ (tmpmsec - time_ms_wheel[MAX_ANGLE_WHEEL_ARRAY - 1]))
-			/ 360 * 60;
-
-
-	*/
-
-	// сдвигаем в массиве все в сторону 0, в последнюю ячейку запишим новые данные
-	for (uint8_t i = 1; i < MAX_ANGLE_WHEEL_ARRAY; i++) {
-		angle[i - 1] = angle[i];
-		time_ms_wheel[i - 1] = time_ms_wheel[i];
-		speed[i - 1] = speed[i];
-		Disired_Target_diff[i - 1] = Disired_Target_diff[i];
-		curr[i - 1] = curr[i];
-	};
-
-    // текущая  скорость будт обновлена только если нет перехода угла через ноль
-
-	if (((tmpangle-angle[MAX_ANGLE_WHEEL_ARRAY - 1])*(angle[MAX_ANGLE_WHEEL_ARRAY - 1]-angle[MAX_ANGLE_WHEEL_ARRAY - 2]))<0) {
-		angle[MAX_ANGLE_WHEEL_ARRAY - 1] = tmpangle;
-		time_ms_wheel[MAX_ANGLE_WHEEL_ARRAY - 1] = tmpmsec;
-		curr[MAX_ANGLE_WHEEL_ARRAY - 1] = curr_;
-		return;
-	} else {
-		angle[MAX_ANGLE_WHEEL_ARRAY - 1] = tmpangle;
-		time_ms_wheel[MAX_ANGLE_WHEEL_ARRAY - 1] = tmpmsec;
-		speed[MAX_ANGLE_WHEEL_ARRAY - 1] = tmpCurrent_Speed;
-
-		Disired_Target_diff[MAX_ANGLE_WHEEL_ARRAY - 1] = Target_Speed - tmpCurrent_Speed;
-
-		float tmpPID_sum_I = 0;
-		for (uint8_t i = 1; i < MAX_ANGLE_WHEEL_ARRAY; i++) {
-			tmpPID_sum_I = tmpPID_sum_I + Disired_Target_diff[i];
-		}
-		PID_sum_I = tmpPID_sum_I;
-
-		Current_Speed = tmpCurrent_Speed;
-
-		curr[MAX_ANGLE_WHEEL_ARRAY - 1] = curr_;
-
-	}
-
-
-
-}
-
-
-
-void WheelData::Set_Speed(float Speed_, int PIDmode_)
-{
-    PIDMode = PIDmode_;
-
-	Target_Speed = fabsf(Speed_);
-
-	if (ws == wsLeft) {
-
-		if (Speed_ > 0) {
-			PinState_INA = GPIO_PIN_RESET;
-			PinState_INB = GPIO_PIN_SET;
-			Direction = WH_CCW;
-		};
-		if (Speed_ < 0) {
-			PinState_INA = GPIO_PIN_SET;
-			PinState_INB = GPIO_PIN_RESET;
-			Direction = WH_CW;
-		};
-
-		if (Speed_  == 0) {
-			PinState_INA = GPIO_PIN_RESET;
-			PinState_INB = GPIO_PIN_RESET;
-			Direction = WH_STOP;
-		};
-	}
-
-	if (ws == wsRight) {
-
-		if (Speed_  < 0) {
-			PinState_INA = GPIO_PIN_RESET;
-			PinState_INB = GPIO_PIN_SET;
-			Direction = WH_CCW;
-		};
-		if (Speed_  > 0) {
-			PinState_INA = GPIO_PIN_SET;
-			PinState_INB = GPIO_PIN_RESET;
-			Direction = WH_CW;
-		};
-
-		if (Speed_  == 0) {
-			PinState_INA = GPIO_PIN_RESET;
-			PinState_INB = GPIO_PIN_RESET;
-			Direction = WH_STOP;
-		};
-	}
-
-	HAL_GPIO_WritePin(GPIOx_INA, GPIO_Pin_INA, PinState_INA);
-	HAL_GPIO_WritePin(GPIOx_INB, GPIO_Pin_INB, PinState_INB);
-
-}
-
-
-void WheelData::Calculation(void)
-{
-	if (fabsf(Target_Speed) > 0) {
-
-		PID_value_P = PID_P * (Target_Speed - Current_Speed);
-
-		PID_sum_I = 0;
-		for (uint8_t i = 0; i < MAX_ANGLE_WHEEL_ARRAY; i++) {
-			PID_sum_I = PID_sum_I + Disired_Target_diff[i];
-		}
-		PID_value_I = PID_I * PID_sum_I;
-
-	//	PID_value_I = PID_I * Disired_Target_diff[MAX_ANGLE_WHEEL_ARRAY];
-
-		if ((time_ms_wheel[MAX_ANGLE_WHEEL_ARRAY]
-				- time_ms_wheel[MAX_ANGLE_WHEEL_ARRAY - 1]) > 0) {
-			Derror = (Disired_Target_diff[MAX_ANGLE_WHEEL_ARRAY]
-					- Disired_Target_diff[MAX_ANGLE_WHEEL_ARRAY - 1])
-					/ (time_ms_wheel[MAX_ANGLE_WHEEL_ARRAY]
-							- time_ms_wheel[MAX_ANGLE_WHEEL_ARRAY - 1]);
-		} else {
-			Derror = 0;
-		};
-
-		PID_value_D = PID_D * Derror;
-
-		PWM_Value = PWM_Value + PID_value_P + PID_value_I + PID_value_D;
-
-		if (PWM_Value < 0) {
-			PWM_Value = 0;
-		};
-		if (PWM_Value > 50000) {
-			PWM_Value = 50000;
-		};
-
-	} else {
-
-		PWM_Value = 0;
-
-	}
-
-	__HAL_TIM_SET_COMPARE(&htim, PWM_Channel, (uint32_t ) PWM_Value);
-}
-
 
 
 
@@ -522,6 +164,41 @@ uint16_t CompassIndex;
 int16_t Result_MagX,Result_MagY,Result_MagZ;
 
 float Heading;
+
+
+
+/**
+  * @brief USART1 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_USART1_UART_Init(void)
+{
+
+  /* USER CODE BEGIN USART1_Init 0 */
+
+  /* USER CODE END USART1_Init 0 */
+
+  /* USER CODE BEGIN USART1_Init 1 */
+
+  /* USER CODE END USART1_Init 1 */
+  huart1.Instance = USART1;
+  huart1.Init.BaudRate = 115200;
+  huart1.Init.WordLength = UART_WORDLENGTH_8B;
+  huart1.Init.StopBits = UART_STOPBITS_1;
+  huart1.Init.Parity = UART_PARITY_NONE;
+  huart1.Init.Mode = UART_MODE_TX_RX;
+  huart1.Init.HwFlowCtl = UART_HWCONTROL_NONE;
+  huart1.Init.OverSampling = UART_OVERSAMPLING_16;
+  if (HAL_UART_Init(&huart1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN USART1_Init 2 */
+
+  /* USER CODE END USART1_Init 2 */
+
+}
 
 
 /* USER CODE END 0 */
@@ -568,11 +245,16 @@ int main(void)
 //  FLASH_SaveSetting();
 //  FLASH_LoadSetting();
 
+  MX_USART1_UART_Init();
+
 
   ADXL345_Conf(hi2c1);
   ADXL344_SetMaxG(hi2c1,2);
   ADXL345_Calibartion(hi2c1,1000);
   ADXL345_Read_G(hi2c1, &ValX, &ValY, &ValZ);
+
+
+  HAL_UART_Transmit(&huart1, (uint8_t*)"Hello World\n", 12,100);
 
 
   QMC5883L_Initialize(hi2c1,MODE_CONTROL_CONTINUOUS,OUTPUT_DATA_RATE_200HZ,FULL_SCALE_2G,OVER_SAMPLE_RATIO_512);
