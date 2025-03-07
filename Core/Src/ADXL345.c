@@ -179,6 +179,9 @@ void ADXL345_Read_G(I2C_HandleTypeDef hi2cX, float *ValX, float *ValY,	float *Va
 };
 
 
+
+
+
 void ADXL345_Calibartion(I2C_HandleTypeDef hi2cX, uint16_t samples_count) {
 
 	int16_t ValX = 0;

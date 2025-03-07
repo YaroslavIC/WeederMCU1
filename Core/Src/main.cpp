@@ -30,6 +30,9 @@
 #include "compass.h"
 #include "ADXL345.h"
 #include "Wheel.hpp"
+#include "stdio.h"
+#include "../Fusion/Fusion.h"
+
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -45,7 +48,7 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-
+#define SAMPLE_PERIOD (0.01f) // replace this with actual sample period
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -95,12 +98,15 @@ extern osThreadId_t cmdLineTaskHandle;
 uint16_t adcData[ADC_CHANNELS_NUM*ADC_CHANNEL_LENGTH];
 float adcVoltage[ADC_CHANNELS_NUM*ADC_CHANNEL_LENGTH];
 
-
+FusionAhrs ahrs;
 
 WheelData* clLeftW;
 WheelData* clRightW;
 
-float G,ValX,ValY,ValZ;
+float cAccX,cAccY,cAccZ;
+float cMagX,cMagY,cMagZ;
+
+
 
 int16_t temperaure;
 
@@ -161,6 +167,21 @@ int16_t Result_MagX,Result_MagY,Result_MagZ;
 float Heading;
 
 
+void AHRS_Init(void){
+
+  ADXL345_Conf(hi2c1);
+  ADXL344_SetMaxG(hi2c1,2);
+  ADXL345_Calibartion(hi2c1,1000);
+
+  QMC5883L_Initialize(hi2c1,MODE_CONTROL_CONTINUOUS,OUTPUT_DATA_RATE_200HZ,FULL_SCALE_2G,OVER_SAMPLE_RATIO_512);
+
+
+
+  FusionAhrsInitialise(&ahrs);
+
+};
+
+
 
 /**
   * @brief USART1 Initialization Function
@@ -217,16 +238,53 @@ int main(void)
 
 
 
-  ADXL345_Conf(hi2c1);
-  ADXL344_SetMaxG(hi2c1,2);
-  ADXL345_Calibartion(hi2c1,1000);
-  ADXL345_Read_G(hi2c1, &ValX, &ValY, &ValZ);
 
 
-  HAL_UART_Transmit(&huart1, (uint8_t*)"Wheel MCU 1.0 Starting .....\n", 12,100);
+
+  QMC5883L_Read_Compensated(hi2c1,&cMagX,&cMagY,&cMagZ);
+  ADXL345_Read_G(hi2c1,&cAccX,&cAccY,&cAccZ);
 
 
-  QMC5883L_Initialize(hi2c1,MODE_CONTROL_CONTINUOUS,OUTPUT_DATA_RATE_200HZ,FULL_SCALE_2G,OVER_SAMPLE_RATIO_512);
+
+
+  while (true) { // this loop should repeat each time new gyroscope data is available
+      const FusionVector gyroscope = {0.0f, 0.0f, 0.0f}; // replace this with actual gyroscope data in degrees/s
+      const FusionVector accelerometer = {0.0f, 0.0f, 1.0f}; // replace this with actual accelerometer data in g
+
+      FusionAhrsUpdateNoMagnetometer(&ahrs, gyroscope, accelerometer, SAMPLE_PERIOD);
+
+      const FusionEuler euler = FusionQuaternionToEuler(FusionAhrsGetQuaternion(&ahrs));
+
+      printf("Roll %0.1f, Pitch %0.1f, Yaw %0.1f\n", euler.angle.roll, euler.angle.pitch, euler.angle.yaw); // @suppress("Float formatting support")
+  }
+
+
+
+
+
+
+
+ // HAL_UART_Transmit(&huart1, (uint8_t*)"Wheel MCU 1.0 Starting .....\n", 30,100);
+
+
+
+
+
+
+
+
+
+/*
+  for (uint32_t i = 1; i < 100000; i++) {
+	QMC5883L_Read_Data(hi2c1, &MagX2, &MagY2, &MagZ2);
+
+	char msg[150];
+    uint16_t msglen = sprintf( msg, "%i %i %i\n",  MagX2, MagY2, MagZ2  );
+	HAL_UART_Transmit(&huart1, (uint8_t*)msg, msglen ,100);
+	HAL_Delay(50);
+  };
+*/
+
 
 
 

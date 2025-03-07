@@ -1,3 +1,6 @@
+"./Core/Fusion/FusionAhrs.o"
+"./Core/Fusion/FusionCompass.o"
+"./Core/Fusion/FusionOffset.o"
 "./Core/Src/ADXL345.o"
 "./Core/Src/FreeRTOS_CLI.o"
 "./Core/Src/Wheel.o"
