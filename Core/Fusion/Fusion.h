@@ -3,6 +3,7 @@
  * @author Seb Madgwick
  * @brief Main header file for the Fusion library.  This is the only file that
  * needs to be included when using the library.
+ * https://github.com/xioTechnologies/Fusion/tree/main
  */
 
 #ifndef FUSION_H

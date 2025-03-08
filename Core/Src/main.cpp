@@ -32,6 +32,7 @@
 #include "Wheel.hpp"
 #include "stdio.h"
 #include "../Fusion/Fusion.h"
+#include <time.h>
 
 /* USER CODE END Includes */
 
@@ -48,7 +49,9 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-#define SAMPLE_PERIOD (0.01f) // replace this with actual sample period
+
+#define SAMPLE_RATE (10)
+
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -99,6 +102,7 @@ uint16_t adcData[ADC_CHANNELS_NUM*ADC_CHANNEL_LENGTH];
 float adcVoltage[ADC_CHANNELS_NUM*ADC_CHANNEL_LENGTH];
 
 FusionAhrs ahrs;
+FusionAhrsSettings Ahrs_settings;
 
 WheelData* clLeftW;
 WheelData* clRightW;
@@ -107,8 +111,21 @@ float cAccX,cAccY,cAccZ;
 float cMagX,cMagY,cMagZ;
 
 
+const FusionMatrix gyroscopeMisalignment = {1.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 1.0f};
+const FusionVector gyroscopeSensitivity = {1.0f, 1.0f, 1.0f};
+const FusionVector gyroscopeOffset = {0.0f, 0.0f, 0.0f};
 
-int16_t temperaure;
+const FusionMatrix accelerometerMisalignment = {1.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 1.0f};
+const FusionVector accelerometerSensitivity = {1.0f, 1.0f, 1.0f};
+const FusionVector accelerometerOffset = {0.0f, 0.0f, 0.0f};
+
+
+const FusionMatrix softIronMatrix = {1.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 1.0f};
+const FusionVector hardIronOffset = {0.0f, 0.0f, 0.0f};
+
+static clock_t previousTimestamp;
+
+FusionOffset offset;
 
 extern SFlash_data_storage FS;
 
@@ -136,7 +153,7 @@ void Task10msHandler(void *argument);
 void Task100msHandler(void *argument);
 
 /* USER CODE BEGIN PFP */
-
+#define PUTCHAR_PROTOTYPE int __io_putchar(int ch)
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -167,19 +184,62 @@ int16_t Result_MagX,Result_MagY,Result_MagZ;
 float Heading;
 
 
-void AHRS_Init(void){
+void Full_AHRS_Init(void) {
 
-  ADXL345_Conf(hi2c1);
-  ADXL344_SetMaxG(hi2c1,2);
-  ADXL345_Calibartion(hi2c1,1000);
+	ADXL345_Conf(hi2c1);
+	ADXL344_SetMaxG(hi2c1, 2);
+	ADXL345_Calibartion(hi2c1, 1000);
 
-  QMC5883L_Initialize(hi2c1,MODE_CONTROL_CONTINUOUS,OUTPUT_DATA_RATE_200HZ,FULL_SCALE_2G,OVER_SAMPLE_RATIO_512);
+	QMC5883L_Initialize(hi2c1, MODE_CONTROL_CONTINUOUS, OUTPUT_DATA_RATE_200HZ,
+			FULL_SCALE_2G, OVER_SAMPLE_RATIO_512);
+
+	FusionOffsetInitialise(&offset, SAMPLE_RATE);
+	FusionAhrsInitialise(&ahrs);
+
+	Ahrs_settings.convention = FusionConventionNwu;
+	Ahrs_settings.gain = 0.5f;
+	Ahrs_settings.gyroscopeRange = 2000.0f; /* replace this with actual gyroscope range in degrees/s */
+	Ahrs_settings.accelerationRejection = 10.0f;
+	Ahrs_settings.magneticRejection = 10.0f;
+	Ahrs_settings.recoveryTriggerPeriod = 5 * SAMPLE_RATE; /* 5 seconds */
+
+	FusionAhrsSetSettings(&ahrs, &Ahrs_settings);
+
+}
+;
+
+void AHRS_Calculation(void) {
+
+	  QMC5883L_Read_Compensated(hi2c1,&cMagX,&cMagY,&cMagZ);
+	  ADXL345_Read_G(hi2c1,&cAccX,&cAccY,&cAccZ);
+
+      const clock_t timestamp = clock(); // replace this with actual gyroscope timestamp
+      FusionVector gyroscope = {0.0f, 0.0f, 0.0f}; // replace this with actual gyroscope data in degrees/s
+      FusionVector accelerometer = {cAccX, cAccY, cAccZ}; // replace this with actual accelerometer data in g
+      FusionVector magnetometer = {cMagX, cMagY, cMagZ}; // replace this with actual magnetometer data in arbitrary units
+
+      gyroscope = FusionCalibrationInertial(gyroscope, gyroscopeMisalignment, gyroscopeSensitivity, gyroscopeOffset);
+      accelerometer = FusionCalibrationInertial(accelerometer, accelerometerMisalignment, accelerometerSensitivity, accelerometerOffset);
+      magnetometer = FusionCalibrationMagnetic(magnetometer, softIronMatrix, hardIronOffset);
 
 
+      gyroscope = FusionOffsetUpdate(&offset, gyroscope);
 
-  FusionAhrsInitialise(&ahrs);
 
-};
+      const float deltaTime = (float) (timestamp - previousTimestamp) / (float) CLOCKS_PER_SEC;
+      previousTimestamp = timestamp;
+
+      FusionAhrsUpdate(&ahrs, gyroscope, accelerometer, magnetometer, deltaTime);
+
+      const FusionEuler euler = FusionQuaternionToEuler(FusionAhrsGetQuaternion(&ahrs));
+      const FusionVector earth = FusionAhrsGetEarthAcceleration(&ahrs);
+
+
+      printf("Roll %0.1f, Pitch %0.1f, Yaw %0.1f, X %0.1f, Y %0.1f, Z %0.1f\n",
+             euler.angle.roll, euler.angle.pitch, euler.angle.yaw,
+             earth.axis.x, earth.axis.y, earth.axis.z);
+
+}
 
 
 
@@ -237,34 +297,17 @@ int main(void)
 
 
 
+  printf("Wheel MCU 1.0 Starting .....\n");
+
+
+  Full_AHRS_Init();
+
+
+  AHRS_Calculation();
 
 
 
 
-  QMC5883L_Read_Compensated(hi2c1,&cMagX,&cMagY,&cMagZ);
-  ADXL345_Read_G(hi2c1,&cAccX,&cAccY,&cAccZ);
-
-
-
-
-  while (true) { // this loop should repeat each time new gyroscope data is available
-      const FusionVector gyroscope = {0.0f, 0.0f, 0.0f}; // replace this with actual gyroscope data in degrees/s
-      const FusionVector accelerometer = {0.0f, 0.0f, 1.0f}; // replace this with actual accelerometer data in g
-
-      FusionAhrsUpdateNoMagnetometer(&ahrs, gyroscope, accelerometer, SAMPLE_PERIOD);
-
-      const FusionEuler euler = FusionQuaternionToEuler(FusionAhrsGetQuaternion(&ahrs));
-
-      printf("Roll %0.1f, Pitch %0.1f, Yaw %0.1f\n", euler.angle.roll, euler.angle.pitch, euler.angle.yaw); // @suppress("Float formatting support")
-  }
-
-
-
-
-
-
-
- // HAL_UART_Transmit(&huart1, (uint8_t*)"Wheel MCU 1.0 Starting .....\n", 30,100);
 
 
 
@@ -826,6 +869,16 @@ static void MX_GPIO_Init(void)
 
 /* USER CODE BEGIN 4 */
 
+PUTCHAR_PROTOTYPE
+{
+  /* Place your implementation of fputc here */
+  /* e.g. write a character to the USART1 and Loop until the end of transmission */
+  HAL_UART_Transmit(&huart1, (uint8_t *)&ch, 1, 0xFFFF);
+
+  return ch;
+}
+
+
 /* USER CODE END 4 */
 
 /* USER CODE BEGIN Header_StartDefaultTask */
@@ -917,7 +970,13 @@ void Task100msHandler(void *argument)
 		float sumRight = 0;
 
 
-		Heading = QMC5883L_Heading(Result_MagX,Result_MagY,Result_MagZ)*180/3.14159;
+
+	//	AHRS_Calculation();
+
+
+
+
+
 
 		for (uint8_t i=0;i<ADC_CHANNELS_NUM*ADC_CHANNEL_LENGTH-2;i +=2) {
 		  sumLeft  = sumLeft  + adcData[i];

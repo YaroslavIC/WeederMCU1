@@ -90,7 +90,7 @@ main-build: WeederMCU1.elf secondary-outputs
 
 # Tool invocations
 WeederMCU1.elf WeederMCU1.map: $(OBJS) $(USER_OBJS) C:\Users\HeroPC\git\STM32\WeederMCU1\STM32F401RCTX_FLASH.ld makefile objects.list $(OPTIONAL_TOOL_DEPS)
-	arm-none-eabi-g++ -o "WeederMCU1.elf" @"objects.list" $(USER_OBJS) $(LIBS) -mcpu=cortex-m4 -T"C:\Users\HeroPC\git\STM32\WeederMCU1\STM32F401RCTX_FLASH.ld" -Wl,-Map="WeederMCU1.map" -Wl,--gc-sections -static --specs=nano.specs -mfpu=fpv4-sp-d16 -mfloat-abi=hard -mthumb -Wl,--start-group -lc -lm -lstdc++ -lsupc++ -Wl,--end-group
+	arm-none-eabi-g++ -o "WeederMCU1.elf" @"objects.list" $(USER_OBJS) $(LIBS) -mcpu=cortex-m4 -T"C:\Users\HeroPC\git\STM32\WeederMCU1\STM32F401RCTX_FLASH.ld" -Wl,-Map="WeederMCU1.map" -Wl,--gc-sections -static --specs=nano.specs -mfpu=fpv4-sp-d16 -mfloat-abi=hard -mthumb -u _printf_float -Wl,--start-group -lc -lm -lstdc++ -lsupc++ -Wl,--end-group
 	@echo 'Finished building target: $@'
 	@echo ' '
 
