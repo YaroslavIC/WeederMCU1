@@ -33,6 +33,7 @@
 #include "stdio.h"
 #include "../Fusion/Fusion.h"
 #include <time.h>
+#include "ITG3200.h"
 
 /* USER CODE END Includes */
 
@@ -109,6 +110,7 @@ WheelData* clRightW;
 
 float cAccX,cAccY,cAccZ;
 float cMagX,cMagY,cMagZ;
+float GyroX,GyroY,GyroZ;
 
 
 const FusionMatrix gyroscopeMisalignment = {1.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 1.0f};
@@ -183,17 +185,29 @@ int16_t Result_MagX,Result_MagY,Result_MagZ;
 
 float Heading;
 
-
 void Full_AHRS_Init(void) {
 
+	printf("\nAHRS Init ..........\n");
+	printf("ADXL345 Init .....\n");
 	ADXL345_Conf(hi2c1);
 	ADXL344_SetMaxG(hi2c1, 2);
+	printf("ADXL345 Calibartion  - Don't move.....\n");
 	ADXL345_Calibartion(hi2c1, 1000);
+	printf("ADXL345 Calibration  - Finish \n");
 
+	printf("QMC5883L Init .....\n");
 	QMC5883L_Initialize(hi2c1, MODE_CONTROL_CONTINUOUS, OUTPUT_DATA_RATE_200HZ,
 			FULL_SCALE_2G, OVER_SAMPLE_RATIO_512);
 
+	printf("Init Gyro .....\n");
+	InitGyro(hi2c1);
+	printf("Calibration  Gyro - Don't move.....\n");
+	Calibration_Gyro(hi2c1);
+	printf("Calibration  Gyro - Finish. \n");
+
+	printf("AHRS FusionOffsetInitialise \n");
 	FusionOffsetInitialise(&offset, SAMPLE_RATE);
+	printf("AHRS FusionAhrsInitialise \n");
 	FusionAhrsInitialise(&ahrs);
 
 	Ahrs_settings.convention = FusionConventionNwu;
@@ -203,18 +217,22 @@ void Full_AHRS_Init(void) {
 	Ahrs_settings.magneticRejection = 10.0f;
 	Ahrs_settings.recoveryTriggerPeriod = 5 * SAMPLE_RATE; /* 5 seconds */
 
+	printf("AHRS FusionAhrsSetSettings \n");
 	FusionAhrsSetSettings(&ahrs, &Ahrs_settings);
+	printf("AHRS Init complete \n");
 
 }
 ;
+
 
 void AHRS_Calculation(void) {
 
 	  QMC5883L_Read_Compensated(hi2c1,&cMagX,&cMagY,&cMagZ);
 	  ADXL345_Read_G(hi2c1,&cAccX,&cAccY,&cAccZ);
+	  ReadGyro(hi2c1,&GyroX,&GyroY,&GyroZ);
 
       const clock_t timestamp = clock(); // replace this with actual gyroscope timestamp
-      FusionVector gyroscope = {0.0f, 0.0f, 0.0f}; // replace this with actual gyroscope data in degrees/s
+      FusionVector gyroscope = {GyroX,GyroY,GyroZ}; // replace this with actual gyroscope data in degrees/s
       FusionVector accelerometer = {cAccX, cAccY, cAccZ}; // replace this with actual accelerometer data in g
       FusionVector magnetometer = {cMagX, cMagY, cMagZ}; // replace this with actual magnetometer data in arbitrary units
 
@@ -235,9 +253,24 @@ void AHRS_Calculation(void) {
       const FusionVector earth = FusionAhrsGetEarthAcceleration(&ahrs);
 
 
-      printf("Roll %0.1f, Pitch %0.1f, Yaw %0.1f, X %0.1f, Y %0.1f, Z %0.1f\n",
+      FusionAhrsInternalStates FAIS = FusionAhrsGetInternalStates(&ahrs);
+
+
+
+
+      printf("AccX %0.3f AccY %0.3f, AccZ %0.3f, GyroX %0.3f, GyroY %0.3f, GyroZ %0.3f, MagX %0.3f, MagY %0.3f, MagZ %0.3f -- ",
+    		  accelerometer.axis.x,accelerometer.axis.y,accelerometer.axis.z,
+			  gyroscope.axis.x, gyroscope.axis.y, gyroscope.axis.z,
+			  magnetometer.axis.x, magnetometer.axis.y, magnetometer.axis.z);
+
+
+      printf("Roll %0.4f, Pitch %0.4f, Yaw %0.4f, X %0.4f, Y %0.4f, Z %0.4f\n",
              euler.angle.roll, euler.angle.pitch, euler.angle.yaw,
              earth.axis.x, earth.axis.y, earth.axis.z);
+
+      printf("AE %0.3f, ART %0.3f, AI %i, ME %0.3f, MRT %0.3f, MI %i \n\n",
+      FAIS.accelerationError,FAIS.accelerationRecoveryTrigger,FAIS.accelerometerIgnored,FAIS.magneticError,FAIS.magneticRecoveryTrigger,FAIS.magnetometerIgnored);
+
 
 }
 
@@ -297,13 +330,15 @@ int main(void)
 
 
 
-  printf("Wheel MCU 1.0 Starting .....\n");
 
 
-  Full_AHRS_Init();
 
+	Full_AHRS_Init();
 
-  AHRS_Calculation();
+	while (1) {
+		AHRS_Calculation();
+		HAL_Delay(100);
+	};
 
 
 
