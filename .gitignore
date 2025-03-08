@@ -38,6 +38,8 @@
 
 # Vagrant directory
 .vagrant/
+Debug/
+
 
 # Include makefiles
 !Makefile
