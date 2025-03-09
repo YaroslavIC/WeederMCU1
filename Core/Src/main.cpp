@@ -34,6 +34,7 @@
 #include "../Fusion/Fusion.h"
 #include <time.h>
 #include "ITG3200.h"
+#include "semphr.h"
 
 /* USER CODE END Includes */
 
@@ -105,6 +106,13 @@ float adcVoltage[ADC_CHANNELS_NUM*ADC_CHANNEL_LENGTH];
 FusionAhrs ahrs;
 FusionAhrsSettings Ahrs_settings;
 
+clock_t timestamp;
+float deltaTime;
+FusionVector gyroscope = {0,0, 0 };
+FusionVector accelerometer = {0, 0, 0 };
+FusionVector magnetometer = { 0, 0, 0 };
+
+
 WheelData* clLeftW;
 WheelData* clRightW;
 
@@ -137,6 +145,15 @@ float set_speed;
 
 int16_t state[128];
 uint8_t compass_data[16];
+
+static StaticSemaphore_t uart_mutex;
+static SemaphoreHandle_t h_uart_mutex = NULL;
+
+static StaticSemaphore_t i2c_mutex;
+static SemaphoreHandle_t h_i2c_mutex = NULL;
+
+
+
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -191,7 +208,7 @@ void Full_AHRS_Init(void) {
 	printf("ADXL345 Init .....\n");
 	ADXL345_Conf(hi2c1);
 	ADXL344_SetMaxG(hi2c1, 2);
-	printf("ADXL345 Calibartion  - Don't move.....\n");
+	printf("ADXL345 Calibration  - Don't move.....\n");
 	ADXL345_Calibartion(hi2c1, 1000);
 	printf("ADXL345 Calibration  - Finish \n");
 
@@ -221,59 +238,73 @@ void Full_AHRS_Init(void) {
 	FusionAhrsSetSettings(&ahrs, &Ahrs_settings);
 	printf("AHRS Init complete \n");
 
-}
-;
+};
 
+
+void init_mutexs(void) // Called before tasks are created
+{
+    h_uart_mutex = xSemaphoreCreateMutexStatic ( &uart_mutex );
+    h_i2c_mutex = xSemaphoreCreateMutexStatic ( &i2c_mutex );
+}
+
+
+
+void AHRS_Calculation_GetData(void) {
+	QMC5883L_Read_Compensated(hi2c1, &cMagX, &cMagY, &cMagZ);
+	ADXL345_Read_G(hi2c1, &cAccX, &cAccY, &cAccZ);
+	ReadGyro(hi2c1, &GyroX, &GyroY, &GyroZ);
+
+}
 
 void AHRS_Calculation(void) {
 
-	  QMC5883L_Read_Compensated(hi2c1,&cMagX,&cMagY,&cMagZ);
-	  ADXL345_Read_G(hi2c1,&cAccX,&cAccY,&cAccZ);
-	  ReadGyro(hi2c1,&GyroX,&GyroY,&GyroZ);
 
-      const clock_t timestamp = clock(); // replace this with actual gyroscope timestamp
-      FusionVector gyroscope = {GyroX,GyroY,GyroZ}; // replace this with actual gyroscope data in degrees/s
-      FusionVector accelerometer = {cAccX, cAccY, cAccZ}; // replace this with actual accelerometer data in g
-      FusionVector magnetometer = {cMagX, cMagY, cMagZ}; // replace this with actual magnetometer data in arbitrary units
+	AHRS_Calculation_GetData();
+	timestamp =  HAL_GetTick()  ; // replace this with actual gyroscope timestamp
+	gyroscope = { GyroX, GyroY, GyroZ }; // replace this with actual gyroscope data in degrees/s
+	accelerometer = { cAccX, cAccY, cAccZ }; // replace this with actual accelerometer data in g
+	magnetometer = { cMagX, cMagY, cMagZ }; // replace this with actual magnetometer data in arbitrary units
 
-      gyroscope = FusionCalibrationInertial(gyroscope, gyroscopeMisalignment, gyroscopeSensitivity, gyroscopeOffset);
-      accelerometer = FusionCalibrationInertial(accelerometer, accelerometerMisalignment, accelerometerSensitivity, accelerometerOffset);
-      magnetometer = FusionCalibrationMagnetic(magnetometer, softIronMatrix, hardIronOffset);
+///	gyroscope = FusionCalibrationInertial(gyroscope, gyroscopeMisalignment,
+//			gyroscopeSensitivity, gyroscopeOffset);
+//	accelerometer = FusionCalibrationInertial(accelerometer,
+//			accelerometerMisalignment, accelerometerSensitivity,
+//			accelerometerOffset);
+//	magnetometer = FusionCalibrationMagnetic(magnetometer, softIronMatrix,
+//			hardIronOffset);
 
+//	gyroscope = FusionOffsetUpdate(&offset, gyroscope);
 
-      gyroscope = FusionOffsetUpdate(&offset, gyroscope);
+	deltaTime = (float) (timestamp - previousTimestamp)	/ (float)1000.0;
+	previousTimestamp = timestamp;
 
-
-      const float deltaTime = (float) (timestamp - previousTimestamp) / (float) CLOCKS_PER_SEC;
-      previousTimestamp = timestamp;
-
-      FusionAhrsUpdate(&ahrs, gyroscope, accelerometer, magnetometer, deltaTime);
-
-      const FusionEuler euler = FusionQuaternionToEuler(FusionAhrsGetQuaternion(&ahrs));
-      const FusionVector earth = FusionAhrsGetEarthAcceleration(&ahrs);
-
-
-      FusionAhrsInternalStates FAIS = FusionAhrsGetInternalStates(&ahrs);
-
-
-
-
-      printf("AccX %0.3f AccY %0.3f, AccZ %0.3f, GyroX %0.3f, GyroY %0.3f, GyroZ %0.3f, MagX %0.3f, MagY %0.3f, MagZ %0.3f -- ",
-    		  accelerometer.axis.x,accelerometer.axis.y,accelerometer.axis.z,
-			  gyroscope.axis.x, gyroscope.axis.y, gyroscope.axis.z,
-			  magnetometer.axis.x, magnetometer.axis.y, magnetometer.axis.z);
-
-
-      printf("Roll %0.4f, Pitch %0.4f, Yaw %0.4f, X %0.4f, Y %0.4f, Z %0.4f\n",
-             euler.angle.roll, euler.angle.pitch, euler.angle.yaw,
-             earth.axis.x, earth.axis.y, earth.axis.z);
-
-      printf("AE %0.3f, ART %0.3f, AI %i, ME %0.3f, MRT %0.3f, MI %i \n\n",
-      FAIS.accelerationError,FAIS.accelerationRecoveryTrigger,FAIS.accelerometerIgnored,FAIS.magneticError,FAIS.magneticRecoveryTrigger,FAIS.magnetometerIgnored);
-
-
+	FusionAhrsUpdate(&ahrs, gyroscope, accelerometer, magnetometer, deltaTime);
 }
 
+void AHRS_Calculation_print(void) {
+
+	const FusionEuler euler = FusionQuaternionToEuler(
+			FusionAhrsGetQuaternion(&ahrs));
+	const FusionVector earth = FusionAhrsGetEarthAcceleration(&ahrs);
+
+	FusionAhrsInternalStates FAIS = FusionAhrsGetInternalStates(&ahrs);
+
+	printf(
+			"AccX %0.3f AccY %0.3f, AccZ %0.3f, GyroX %0.3f, GyroY %0.3f, GyroZ %0.3f, MagX %0.3f, MagY %0.3f, MagZ %0.3f -- ",
+			accelerometer.axis.x, accelerometer.axis.y, accelerometer.axis.z,
+			gyroscope.axis.x, gyroscope.axis.y, gyroscope.axis.z,
+			magnetometer.axis.x, magnetometer.axis.y, magnetometer.axis.z);
+
+	printf("Roll %0.4f, Pitch %0.4f, Yaw %0.4f, X %0.4f, Y %0.4f, Z %0.4f\n",
+			euler.angle.roll, euler.angle.pitch, euler.angle.yaw, earth.axis.x,
+			earth.axis.y, earth.axis.z);
+
+	printf("AE %0.3f, ART %0.3f, AI %i, ME %0.3f, MRT %0.3f, MI %i \n\n",
+			FAIS.accelerationError, FAIS.accelerationRecoveryTrigger,
+			FAIS.accelerometerIgnored, FAIS.magneticError,
+			FAIS.magneticRecoveryTrigger, FAIS.magnetometerIgnored);
+
+}
 
 
 /**
@@ -329,39 +360,25 @@ int main(void)
 //  FLASH_LoadSetting();
 
 
-
-
-
-
 	Full_AHRS_Init();
 
-	while (1) {
-		AHRS_Calculation();
-		HAL_Delay(100);
-	};
+    init_mutexs();
+
+	AHRS_Calculation_GetData();
+	AHRS_Calculation();
+	AHRS_Calculation_print();
+
+//	AHRS_Calculation();
 
 
 
-
-
-
-
-
-
-
-
-
-
-/*
-  for (uint32_t i = 1; i < 100000; i++) {
-	QMC5883L_Read_Data(hi2c1, &MagX2, &MagY2, &MagZ2);
-
-	char msg[150];
-    uint16_t msglen = sprintf( msg, "%i %i %i\n",  MagX2, MagY2, MagZ2  );
-	HAL_UART_Transmit(&huart1, (uint8_t*)msg, msglen ,100);
-	HAL_Delay(50);
-  };
-*/
+//	while (1) {
+//		AHRS_Calculation();
+//		HAL_Delay(100);
+//	};
+//
+//
+//
 
 
 
@@ -908,7 +925,10 @@ PUTCHAR_PROTOTYPE
 {
   /* Place your implementation of fputc here */
   /* e.g. write a character to the USART1 and Loop until the end of transmission */
+
+  xSemaphoreTake(h_uart_mutex, ( TickType_t ) 1000);
   HAL_UART_Transmit(&huart1, (uint8_t *)&ch, 1, 0xFFFF);
+  xSemaphoreGive(h_uart_mutex);
 
   return ch;
 }
@@ -955,27 +975,6 @@ void Task10msHandler(void *argument)
 		HAL_ADC_Start_DMA(&hadc1, (uint32_t*) adcData,
 		ADC_CHANNELS_NUM * ADC_CHANNEL_LENGTH);
 
-		clLeftW->Calculation();
-		clRightW->Calculation();
-
-		QMC5883L_Read_Data(hi2c1, &MagX[CompassIndex % MAX_COMPASS_ARRAY],
-				&MagY[CompassIndex % MAX_COMPASS_ARRAY],
-				&MagZ[CompassIndex % MAX_COMPASS_ARRAY]);
-		CompassIndex++;
-
-		int32_t tResult_MagX = 0;
-		int32_t tResult_MagY = 0;
-		int32_t tResult_MagZ = 0;
-
-		for (uint16_t i = 0; i < MAX_COMPASS_ARRAY; i++) {
-			tResult_MagX = tResult_MagX + MagX[i];
-			tResult_MagY = tResult_MagY + MagY[i];
-			tResult_MagZ = tResult_MagZ + MagZ[i];
-		}
-
-		Result_MagX = (int16_t) tResult_MagX / MAX_COMPASS_ARRAY;
-		Result_MagY = (int16_t) tResult_MagY / MAX_COMPASS_ARRAY;
-		Result_MagZ = (int16_t) tResult_MagZ / MAX_COMPASS_ARRAY;
 
 		vTaskDelayUntil(&xLastWakeTime, xFrequency);
 
@@ -990,48 +989,44 @@ void Task10msHandler(void *argument)
 * @retval None
 */
 /* USER CODE END Header_Task100msHandler */
-void Task100msHandler(void *argument)
-{
-  /* USER CODE BEGIN Task100msHandler */
+void Task100msHandler(void *argument) {
+	/* USER CODE BEGIN Task100msHandler */
 
-	   TickType_t xLastWakeTime;
-	    const TickType_t xFrequency = 100 / portTICK_PERIOD_MS;
-	    xLastWakeTime = xTaskGetTickCount();
-
+	TickType_t xLastWakeTime;
+	const TickType_t xFrequency = 100 / portTICK_PERIOD_MS;
+	xLastWakeTime = xTaskGetTickCount();
 
 	/* Infinite loop */
 	for (;;) {
 		float sumLeft = 0;
 		float sumRight = 0;
 
+	 	AHRS_Calculation();
+// 	AHRS_Calculation_print();
 
-
-	//	AHRS_Calculation();
-
-
-
-
-
-
-		for (uint8_t i=0;i<ADC_CHANNELS_NUM*ADC_CHANNEL_LENGTH-2;i +=2) {
-		  sumLeft  = sumLeft  + adcData[i];
-		  sumRight = sumRight + adcData[i+1];
+		for (uint8_t i = 0; i < ADC_CHANNELS_NUM * ADC_CHANNEL_LENGTH - 2; i +=
+				2) {
+			sumLeft = sumLeft + adcData[i];
+			sumRight = sumRight + adcData[i + 1];
 		}
-		sumLeft   = sumLeft  / ADC_CHANNEL_LENGTH;
-		sumRight  = sumRight / ADC_CHANNEL_LENGTH;
+		sumLeft = sumLeft / ADC_CHANNEL_LENGTH;
+		sumRight = sumRight / ADC_CHANNEL_LENGTH;
 
 		clLeftW->ReadAS5600_Curr(sumLeft);
 		clRightW->ReadAS5600_Curr(sumRight);
 
-	 	clLeftW->Set_Speed(set_speed,0);
-		clRightW->Set_Speed(set_speed,0);
+		clLeftW->Calculation();
+		clRightW->Calculation();
+
+		clLeftW->Set_Speed(set_speed, 0);
+		clRightW->Set_Speed(set_speed, 0);
 
 		HAL_GPIO_TogglePin(GPIOC, GPIO_PIN_13);  // мигаем светодиодом
 
-		 vTaskDelayUntil(&xLastWakeTime, xFrequency);
+		vTaskDelayUntil(&xLastWakeTime, xFrequency);
 
 	}
-  /* USER CODE END Task100msHandler */
+	/* USER CODE END Task100msHandler */
 }
 
 /**

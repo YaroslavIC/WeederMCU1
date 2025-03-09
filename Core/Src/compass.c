@@ -26,9 +26,11 @@ void QMC5883L_Write_Reg(I2C_HandleTypeDef  hi2cX,uint8_t reg, uint8_t data)
 
 void QMC5883L_Read_Data(I2C_HandleTypeDef  hi2cX,int16_t *MagX,int16_t *MagY,int16_t *MagZ) // (-32768 / +32768)
 {
-	*MagX=((int16_t)QMC5883L_Read_Reg(hi2cX,QMC5883L_DATA_READ_X_LSB) | (((int16_t)QMC5883L_Read_Reg(hi2cX,QMC5883L_DATA_READ_X_MSB))<<8));
-	*MagY=((int16_t)QMC5883L_Read_Reg(hi2cX,QMC5883L_DATA_READ_Y_LSB) | (((int16_t)QMC5883L_Read_Reg(hi2cX,QMC5883L_DATA_READ_Y_MSB))<<8));
-	*MagZ=((int16_t)QMC5883L_Read_Reg(hi2cX,QMC5883L_DATA_READ_Z_LSB) | (((int16_t)QMC5883L_Read_Reg(hi2cX,QMC5883L_DATA_READ_Z_MSB))<<8));
+	uint8_t buffer[6];
+	HAL_I2C_Mem_Read(&hi2cX,QMC5883L_ADDRESS,QMC5883L_DATA_READ_X_LSB,1,buffer,6,10);
+	*MagX=((int16_t)buffer[0] | (((int16_t)buffer[1])<<8));
+	*MagY=((int16_t)buffer[2] | (((int16_t)buffer[3])<<8));
+	*MagZ=((int16_t)buffer[4] | (((int16_t)buffer[5])<<8));
 }
 
 void QMC5883L_Compenastion(int16_t MagX,int16_t MagY,int16_t MagZ,float *CompensatedMagX,float *CompensatedMagY,float *CompensatedMagZ) // (-32768 / +32768)
@@ -88,7 +90,7 @@ void QMC5883L_Read_Compensated(I2C_HandleTypeDef  hi2cX,float *CompensatedMagX,f
 	int16_t MagY;
 	int16_t MagZ;
 
-	QMC5883L_Read_Data(hi2cX,&MagX,&MagY,&MagZ);
+ 	QMC5883L_Read_Data(hi2cX,&MagX,&MagY,&MagZ);
 
 	float cMagX = (float)MagX - b[0];
 	float cMagY = (float)MagY - b[1];
