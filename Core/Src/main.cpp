@@ -309,7 +309,7 @@ void AHRS_Calculation_print(void) {
 //			euler.angle.roll, euler.angle.pitch, euler.angle.yaw, earth.axis.x,
 //			earth.axis.y, earth.axis.z);
 
-		printf("Roll %0.4f, Pitch %0.4f, Yaw %0.4f \n",				euler.angle.roll, euler.angle.pitch, euler.angle.yaw );
+		printf("%0.4f \n",				euler.angle.yaw );
 
 //	printf("AE %0.3f, ART %0.3f, AI %i, ME %0.3f, MRT %0.3f, MI %i \n\n",
 //			FAIS.accelerationError, FAIS.accelerationRecoveryTrigger,
@@ -1036,7 +1036,7 @@ void Task100msHandler(void *argument) {
 		HAL_GPIO_TogglePin(GPIOC, GPIO_PIN_13);  // мигаем светодиодом
 
 
-		printf("arr 100 msec  \n");
+
 
 		vTaskDelayUntil(&xLastWakeTime, xFrequency);
 
