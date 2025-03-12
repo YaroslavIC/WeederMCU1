@@ -61,14 +61,32 @@ void Error_Handler(void);
 /* Private defines -----------------------------------------------------------*/
 #define BLUELED_Pin GPIO_PIN_13
 #define BLUELED_GPIO_Port GPIOC
+#define TIM5_CH3_LASER_PWM_Pin GPIO_PIN_2
+#define TIM5_CH3_LASER_PWM_GPIO_Port GPIOA
+#define STEP1_DIR_Pin GPIO_PIN_3
+#define STEP1_DIR_GPIO_Port GPIOA
+#define STEP2_DIR_Pin GPIO_PIN_4
+#define STEP2_DIR_GPIO_Port GPIOA
+#define EXTI5_ENDSTOP1_Pin GPIO_PIN_5
+#define EXTI5_ENDSTOP1_GPIO_Port GPIOA
+#define NIM3_CH1_STEP1_Pin GPIO_PIN_6
+#define NIM3_CH1_STEP1_GPIO_Port GPIOA
+#define R_EN_Pin GPIO_PIN_7
+#define R_EN_GPIO_Port GPIOA
 #define R_INA_Pin GPIO_PIN_0
 #define R_INA_GPIO_Port GPIOB
 #define R_INB_Pin GPIO_PIN_1
 #define R_INB_GPIO_Port GPIOB
+#define EXTI2_ENDSTOP2_Pin GPIO_PIN_2
+#define EXTI2_ENDSTOP2_GPIO_Port GPIOB
 #define L_INB_Pin GPIO_PIN_12
 #define L_INB_GPIO_Port GPIOA
 #define L_INA_Pin GPIO_PIN_15
 #define L_INA_GPIO_Port GPIOA
+#define L_EN_Pin GPIO_PIN_4
+#define L_EN_GPIO_Port GPIOB
+#define TIM3_CH2_STEP2_Pin GPIO_PIN_5
+#define TIM3_CH2_STEP2_GPIO_Port GPIOB
 
 /* USER CODE BEGIN Private defines */
 
