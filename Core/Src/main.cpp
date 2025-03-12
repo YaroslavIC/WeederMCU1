@@ -100,6 +100,8 @@ const osThreadAttr_t Task100ms_attributes = {
 
 extern osThreadId_t cmdLineTaskHandle;
 
+uint16_t  a = 0;
+
 uint16_t adcData[ADC_CHANNELS_NUM*ADC_CHANNEL_LENGTH];
 float adcVoltage[ADC_CHANNELS_NUM*ADC_CHANNEL_LENGTH];
 
@@ -177,6 +179,7 @@ void Task100msHandler(void *argument);
 
 /* USER CODE BEGIN PFP */
 #define PUTCHAR_PROTOTYPE int __io_putchar(int ch)
+void setPWM(uint16_t pwm_value);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -319,6 +322,30 @@ void AHRS_Calculation_print(void) {
 
 }
 
+void SetLaserPWM(uint16_t value) {
+	TIM_OC_InitTypeDef sConfigOC;
+
+	// range 0-500
+
+	if (value > 0) {
+
+		sConfigOC.OCMode = TIM_OCMODE_PWM1;
+		sConfigOC.Pulse = value;
+		sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
+		sConfigOC.OCFastMode = TIM_OCFAST_DISABLE;
+		HAL_TIM_PWM_ConfigChannel(&htim5, &sConfigOC, TIM_CHANNEL_3); // таймер №5, канал №3
+		if (HAL_TIM_PWM_Start(&htim5, TIM_CHANNEL_3) != HAL_OK) {
+			printf("Laser Timer PWM Start fault");
+			Error_Handler();
+		}
+
+	} else {
+
+		HAL_TIM_PWM_Stop(&htim5, TIM_CHANNEL_3);
+
+	}
+}
+
 
 /**
   * @brief USART1 Initialization Function
@@ -369,31 +396,14 @@ int main(void)
   MX_TIM5_Init();
   /* USER CODE BEGIN 2 */
 
+
+  SetLaserPWM(0);
+
 //  FS.PWMSpeedLength = 19;
 //  FLASH_SaveSetting();
 //  FLASH_LoadSetting();
 
-
 	Full_AHRS_Init();
-
- //   init_mutexs();
-
-//	AHRS_Calculation_GetData();
-//	AHRS_Calculation();
-//	AHRS_Calculation_print();
-
-//	AHRS_Calculation();
-
-
-
-//	while (1) {
-//		AHRS_Calculation();
-//		HAL_Delay(100);
-//	};
-//
-//
-//
-
 
 
 
@@ -866,9 +876,9 @@ static void MX_TIM5_Init(void)
 
   /* USER CODE END TIM5_Init 1 */
   htim5.Instance = TIM5;
-  htim5.Init.Prescaler = 0;
+  htim5.Init.Prescaler = 84-1;
   htim5.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim5.Init.Period = 4294967295;
+  htim5.Init.Period = 500-1;
   htim5.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   htim5.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
   if (HAL_TIM_Base_Init(&htim5) != HAL_OK)
@@ -1116,7 +1126,7 @@ void Task100msHandler(void *argument)
 		float sumRight = 0;
 
 	 	AHRS_Calculation();
-    	AHRS_Calculation_print();
+   // 	AHRS_Calculation_print();
 
 		for (uint8_t i = 0; i < ADC_CHANNELS_NUM * ADC_CHANNEL_LENGTH - 2; i +=
 				2) {
@@ -1158,10 +1168,10 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 {
   /* USER CODE BEGIN Callback 0 */
 
-	  if (htim->Instance == TIM3) {
+//	  if (htim->Instance == TIM3) {
 	     // step1++
 		 // htim->Channel
-	  }
+//	  }
 
 
   /* USER CODE END Callback 0 */
