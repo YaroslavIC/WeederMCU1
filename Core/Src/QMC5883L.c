@@ -5,7 +5,7 @@
  *      Author: HeroPC
  */
 
-#include "compass.h"
+#include "QMC5883L.h"
 
 
 

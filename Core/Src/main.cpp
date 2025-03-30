@@ -27,7 +27,7 @@
 #include <string.h>
 #include "math.h"
 #include "flash_utils.h"
-#include "compass.h"
+#include "QMC5883L.h"
 #include "ADXL345.h"
 #include "Wheel.hpp"
 #include "stdio.h"
@@ -148,15 +148,14 @@ extern SFlash_data_storage FS;
 float set_speed;
 
 
-//int16_t state[128];
-//uint8_t compass_data[16];
+int16_t MagX[MAX_COMPASS_ARRAY];
+int16_t MagY[MAX_COMPASS_ARRAY];
+int16_t MagZ[MAX_COMPASS_ARRAY];
+uint16_t CompassIndex;
 
-//static StaticSemaphore_t uart_mutex;
-//static SemaphoreHandle_t h_uart_mutex = NULL;
+int16_t Result_MagX,Result_MagY,Result_MagZ;
 
-//static StaticSemaphore_t i2c_mutex;
-//static SemaphoreHandle_t h_i2c_mutex = NULL;
-
+float Heading;
 
 
 /* USER CODE END PV */
@@ -200,14 +199,7 @@ void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef* hadc)
 }
 
 
-int16_t MagX[MAX_COMPASS_ARRAY];
-int16_t MagY[MAX_COMPASS_ARRAY];
-int16_t MagZ[MAX_COMPASS_ARRAY];
-uint16_t CompassIndex;
 
-int16_t Result_MagX,Result_MagY,Result_MagZ;
-
-float Heading;
 
 void Full_AHRS_Init(void) {
 
@@ -246,13 +238,6 @@ void Full_AHRS_Init(void) {
 	printf("AHRS Init complete \n");
 
 };
-
-
-void init_mutexs(void) // Called before tasks are created
-{
-  //  h_uart_mutex = xSemaphoreCreateMutexStatic ( &uart_mutex );
-  //  h_i2c_mutex = xSemaphoreCreateMutexStatic ( &i2c_mutex );
-}
 
 
 

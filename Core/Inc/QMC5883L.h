@@ -7,8 +7,8 @@
  *      based  on https://github.com/Farondis/QMC5883L-stm32-hal/tree/master
  */
 
-#ifndef INC_COMPASS_H_
-#define INC_COMPASS_H_
+#ifndef INC_QMC5883L_H_
+#define INC_QMC5883L_H_
 
 #ifdef __cplusplus
     extern "C" {
@@ -119,4 +119,4 @@ extern void					QMC5883L_Read_Compensated(I2C_HandleTypeDef  hi2cX,float *Compen
 #endif
 
 
-#endif /* INC_COMPASS_H_ */
+#endif /* INC_QMC5883L_H_ */
