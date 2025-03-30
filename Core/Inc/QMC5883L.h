@@ -95,8 +95,7 @@ typedef enum INTTERRUPT_VARIABLES
 INTERRUPT_DISABLE,INTERRUPT_ENABLE
 }_qmc5883l_INT;
 
-static float Xmin,Xmax,Ymin,Ymax;
-static int16_t X,Y,Z;
+
 
 extern uint8_t 				QMC5883L_Read_Reg(I2C_HandleTypeDef  hi2cX,uint8_t reg);
 extern void 				QMC5883L_Write_Reg(I2C_HandleTypeDef  hi2cX,uint8_t reg, uint8_t data);
@@ -111,7 +110,6 @@ extern void					QMC5883L_InterruptConfig(I2C_HandleTypeDef  hi2cX,_qmc5883l_INT 
 extern void 		        QMC5883L_ResetCalibration(void);
 extern float				QMC5883L_Heading( int16_t Xraw,int16_t Yraw,int16_t Zraw);
 extern void					QMC5883L_Scale(int16_t *X,int16_t *Y,int16_t *Z);
-extern void					QMC5883L_Compenastion(int16_t MagX,int16_t MagY,int16_t MagZ,float *CompensatedMagX,float *CompensatedMagY,float *CompensatedMagZ);
 extern void					QMC5883L_Read_Compensated(I2C_HandleTypeDef  hi2cX,float *CompensatedMagX,float *CompensatedMagY,float *CompensatedMagZ);
 
 #ifdef __cplusplus

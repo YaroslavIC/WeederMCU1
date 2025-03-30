@@ -8,8 +8,6 @@
 #include "QMC5883L.h"
 
 
-
-
 uint8_t QMC5883L_Read_Reg(I2C_HandleTypeDef  hi2cX,uint8_t reg)
 {
 	uint8_t Buffer[1];
@@ -33,48 +31,16 @@ void QMC5883L_Read_Data(I2C_HandleTypeDef  hi2cX,int16_t *MagX,int16_t *MagY,int
 	*MagZ=((int16_t)buffer[4] | (((int16_t)buffer[5])<<8));
 }
 
-void QMC5883L_Compenastion(int16_t MagX,int16_t MagY,int16_t MagZ,float *CompensatedMagX,float *CompensatedMagY,float *CompensatedMagZ) // (-32768 / +32768)
-{
-	float b[3];
-	float A[3][3];
-
-
-	b[0]=68.2975;
-	b[1]=-1705.8944;
-	b[2]=-605.7223;
-	A[0][0]=1.0167;
-	A[0][1]=-0.018919;
-	A[0][2]=6.0029e-05;
-	A[1][0]=-0.018919;
-	A[1][1]=1.0062;
-	A[1][2]=0.0031491;
-	A[2][0]=6.0029e-05;
-	A[2][1]=0.0031491;
-	A[2][2]=0.97787;
-
-
-	float cMagX = (float)MagX - b[0];
-	float cMagY = (float)MagY - b[1];
-	float cMagZ = (float)MagZ - b[2];
-
-
-	*CompensatedMagX = (float)(cMagX*A[0][0]+cMagY*A[0][1]+cMagZ*A[0][2]);
-	*CompensatedMagY = (float)(cMagX*A[1][0]+cMagY*A[1][1]+cMagZ*A[1][2]);
-	*CompensatedMagZ = (float)(cMagX*A[2][0]+cMagY*A[2][1]+cMagZ*A[2][2]);
-
-}
-
 
 void QMC5883L_Read_Compensated(I2C_HandleTypeDef  hi2cX,float *CompensatedMagX,float *CompensatedMagY,float *CompensatedMagZ) // (-32768 / +32768)
 {
 	float b[3];
 	float A[3][3];
 
-
-
 	b[0]=68.2975;
 	b[1]=-1705.8944;
 	b[2]=-605.7223;
+
 	A[0][0]=1.0167;
 	A[0][1]=-0.018919;
 	A[0][2]=6.0029e-05;
@@ -151,59 +117,5 @@ _qmc5883l_status QMC5883L_DataIsOverflow(I2C_HandleTypeDef  hi2cX)
 		return NORMAL;
 }
 
-
-void QMC5883L_ResetCalibration()
-{
-	Xmin=Xmax=Ymin=Ymax=0;
-}
-
-
-float QMC5883L_Heading(int16_t Xraw,int16_t Yraw,int16_t Zraw)
-{
-   	float X=Xraw,Y=Yraw,Z=Zraw;
-   	float Heading;
-
-  	if(X<Xmin) {Xmin = X;}
-    	  else if(X>Xmax) {Xmax = X;}
-
-  	if(Y<Ymin) {Ymin = Y;}
-    	  else if(Y>Ymax) {Ymax = Y;}
-
-
-  	if( Xmin==Xmax || Ymin==Ymax ) {return 0.0;}
-
-
- 	  X -= (Xmax+Xmin)/2;
-  	Y -= (Ymax+Ymin)/2;
-
-  	X = X/(Xmax-Xmin);
-  	Y = Y/(Ymax-Ymin);
-
-  	Heading = atan2(Y,X);
-		//EAST
-	Heading += QMC5883L_DECLINATION_ANGLE;
-	//WEST
-	//Heading -= QMC5883L_DECLINATION_ANGLE;
-
-	if(Heading <0)
-   	  {Heading += 2*M_PI;}
-	else if(Heading > 2*M_PI)
-   	  {Heading -= 2*M_PI;}
-
- return Heading;
-}
-
-
-void QMC5883L_Scale(int16_t *X,int16_t *Y,int16_t *Z)
-{
-	*X*=QMC5883L_SCALE_FACTOR;
-	*Y*=QMC5883L_SCALE_FACTOR;
-	*Z*=QMC5883L_SCALE_FACTOR;
-}
-
-
-
-///////////////////////////////////////////////
-///////////////// ADXL345 ///////////////////////////
 
 

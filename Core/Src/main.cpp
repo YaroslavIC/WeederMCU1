@@ -22,37 +22,32 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
+using namespace std;
 #include "cli_app.h"
 #include "task.h"
 #include <string.h>
 #include "math.h"
 #include "flash_utils.h"
-#include "QMC5883L.h"
-#include "ADXL345.h"
 #include "Wheel.hpp"
 #include "stdio.h"
 #include "../Fusion/Fusion.h"
 #include <time.h>
-#include "ITG3200.h"
 #include "semphr.h"
+#include "AHRSroutines.h"
 
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
 /* USER CODE BEGIN PTD */
 
-
-//MPU9250_t mpu9250;
-//uint8_t isDeviceConnected = 0;
-
-
-
 /* USER CODE END PTD */
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
 
-#define SAMPLE_RATE (10)
+#define    DWT_CYCCNT    *(volatile uint32_t*)0xE0001004
+#define    DWT_CONTROL   *(volatile uint32_t*)0xE0001000
+#define    SCB_DEMCR     *(volatile uint32_t*)0xE000EDFC
 
 /* USER CODE END PD */
 
@@ -98,6 +93,32 @@ const osThreadAttr_t Task100ms_attributes = {
 };
 /* USER CODE BEGIN PV */
 
+
+uint32_t profiller_time[20];
+float profiller_time_calc[20];
+float dwt100;
+
+uint32_t GetTickuS() {
+	return DWT_CYCCNT;
+}
+uint32_t GetTick_MHz() {
+	return DWT_CYCCNT;
+}
+
+void profiller_start(int num) {
+	profiller_time[num] = DWT_CYCCNT;
+}
+
+void profiller_stop(int num) {
+	profiller_time_calc[num] = 1000.0
+			* (float) (DWT_CYCCNT - profiller_time[num]) / (dwt100 * 10.0);
+}
+
+
+
+
+
+
 extern osThreadId_t cmdLineTaskHandle;
 
 uint16_t  a = 0;
@@ -105,42 +126,11 @@ uint16_t  a = 0;
 uint16_t adcData[ADC_CHANNELS_NUM*ADC_CHANNEL_LENGTH];
 float adcVoltage[ADC_CHANNELS_NUM*ADC_CHANNEL_LENGTH];
 
-FusionAhrs ahrs;
-FusionAhrsSettings Ahrs_settings;
-FusionEuler euler;
-FusionVector earth;
-FusionAhrsInternalStates FAIS;
-
-clock_t timestamp;
-float deltaTime;
-FusionVector gyroscope = {0,0, 0 };
-FusionVector accelerometer = {0, 0, 0 };
-FusionVector magnetometer = { 0, 0, 0 };
-
+//extern void AHRS_Full_Init(I2C_HandleTypeDef  hi2cX) ;
 
 WheelData* clLeftW;
 WheelData* clRightW;
 
-float cAccX,cAccY,cAccZ;
-float cMagX,cMagY,cMagZ;
-float GyroX,GyroY,GyroZ;
-
-
-const FusionMatrix gyroscopeMisalignment = {1.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 1.0f};
-const FusionVector gyroscopeSensitivity = {1.0f, 1.0f, 1.0f};
-const FusionVector gyroscopeOffset = {0.0f, 0.0f, 0.0f};
-
-const FusionMatrix accelerometerMisalignment = {1.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 1.0f};
-const FusionVector accelerometerSensitivity = {1.0f, 1.0f, 1.0f};
-const FusionVector accelerometerOffset = {0.0f, 0.0f, 0.0f};
-
-
-const FusionMatrix softIronMatrix = {1.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 1.0f};
-const FusionVector hardIronOffset = {0.0f, 0.0f, 0.0f};
-
-static clock_t previousTimestamp;
-
-FusionOffset offset;
 
 extern SFlash_data_storage FS;
 
@@ -148,14 +138,6 @@ extern SFlash_data_storage FS;
 float set_speed;
 
 
-int16_t MagX[MAX_COMPASS_ARRAY];
-int16_t MagY[MAX_COMPASS_ARRAY];
-int16_t MagZ[MAX_COMPASS_ARRAY];
-uint16_t CompassIndex;
-
-int16_t Result_MagX,Result_MagY,Result_MagZ;
-
-float Heading;
 
 
 /* USER CODE END PV */
@@ -179,6 +161,8 @@ void Task100msHandler(void *argument);
 /* USER CODE BEGIN PFP */
 #define PUTCHAR_PROTOTYPE int __io_putchar(int ch)
 void setPWM(uint16_t pwm_value);
+
+
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -201,111 +185,7 @@ void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef* hadc)
 
 
 
-void Full_AHRS_Init(void) {
 
-	printf("\nAHRS Init ..........\n");
-	printf("ADXL345 Init .....\n");
-	ADXL345_Conf(hi2c1);
-	ADXL344_SetMaxG(hi2c1, 2);
-	printf("ADXL345 Calibration  - Don't move.....\n");
-	ADXL345_Calibartion(hi2c1, 1000);
-	printf("ADXL345 Calibration  - Finish \n");
-
-	printf("QMC5883L Init .....\n");
-	QMC5883L_Initialize(hi2c1, MODE_CONTROL_CONTINUOUS, OUTPUT_DATA_RATE_200HZ,
-			FULL_SCALE_2G, OVER_SAMPLE_RATIO_512);
-
-	printf("Init Gyro .....\n");
-	InitGyro(hi2c1);
-	printf("Calibration  Gyro - Don't move.....\n");
-	Calibration_Gyro(hi2c1);
-	printf("Calibration  Gyro - Finish. \n");
-
-	printf("AHRS FusionOffsetInitialise \n");
-	FusionOffsetInitialise(&offset, SAMPLE_RATE);
-	printf("AHRS FusionAhrsInitialise \n");
-	FusionAhrsInitialise(&ahrs);
-
-	Ahrs_settings.convention = FusionConventionNwu;
-	Ahrs_settings.gain = 0.5f;
-	Ahrs_settings.gyroscopeRange = 2000.0f; /* replace this with actual gyroscope range in degrees/s */
-	Ahrs_settings.accelerationRejection = 10.0f;
-	Ahrs_settings.magneticRejection = 10.0f;
-	Ahrs_settings.recoveryTriggerPeriod = 5 * SAMPLE_RATE; /* 5 seconds */
-
-	printf("AHRS FusionAhrsSetSettings \n");
-	FusionAhrsSetSettings(&ahrs, &Ahrs_settings);
-	printf("AHRS Init complete \n");
-
-};
-
-
-
-void AHRS_Calculation_GetData(void) {
-	QMC5883L_Read_Compensated(hi2c1, &cMagX, &cMagY, &cMagZ);
-	ADXL345_Read_G(hi2c1, &cAccX, &cAccY, &cAccZ);
-	ReadGyro(hi2c1, &GyroX, &GyroY, &GyroZ);
-
-}
-
-void AHRS_Calculation(void) {
-
-
-	AHRS_Calculation_GetData();
-	timestamp =  HAL_GetTick()  ; // replace this with actual gyroscope timestamp
-	gyroscope = { GyroX, GyroY, GyroZ }; // replace this with actual gyroscope data in degrees/s
-	accelerometer = { cAccX, cAccY, cAccZ }; // replace this with actual accelerometer data in g
-	magnetometer = { cMagX, cMagY, cMagZ }; // replace this with actual magnetometer data in arbitrary units
-
-///	gyroscope = FusionCalibrationInertial(gyroscope, gyroscopeMisalignment,
-//			gyroscopeSensitivity, gyroscopeOffset);
-//	accelerometer = FusionCalibrationInertial(accelerometer,
-//			accelerometerMisalignment, accelerometerSensitivity,
-//			accelerometerOffset);
-//	magnetometer = FusionCalibrationMagnetic(magnetometer, softIronMatrix,
-//			hardIronOffset);
-
-//	gyroscope = FusionOffsetUpdate(&offset, gyroscope);
-
-	deltaTime = (float) (timestamp - previousTimestamp)	/ (float)1000.0;
-	previousTimestamp = timestamp;
-
-	FusionAhrsUpdate(&ahrs, gyroscope, accelerometer, magnetometer, deltaTime);
-
-
-	   euler = FusionQuaternionToEuler(FusionAhrsGetQuaternion(&ahrs));
-	   earth = FusionAhrsGetEarthAcceleration(&ahrs);
-
-
-
-}
-
-void AHRS_Calculation_print(void) {
-
-//	const FusionEuler euler = FusionQuaternionToEuler(
-//			FusionAhrsGetQuaternion(&ahrs));
-//	const FusionVector earth = FusionAhrsGetEarthAcceleration(&ahrs);
-
-//	FusionAhrsInternalStates FAIS = FusionAhrsGetInternalStates(&ahrs);
-
-//	printf(
-//			"AccX %0.3f AccY %0.3f, AccZ %0.3f, GyroX %0.3f, GyroY %0.3f, GyroZ %0.3f, MagX %0.3f, MagY %0.3f, MagZ %0.3f -- ",
-//			accelerometer.axis.x, accelerometer.axis.y, accelerometer.axis.z,
-//			gyroscope.axis.x, gyroscope.axis.y, gyroscope.axis.z,
-//			magnetometer.axis.x, magnetometer.axis.y, magnetometer.axis.z);
-
-//	printf("Roll %0.4f, Pitch %0.4f, Yaw %0.4f, X %0.4f, Y %0.4f, Z %0.4f\n",
-//			euler.angle.roll, euler.angle.pitch, euler.angle.yaw, earth.axis.x,
-//			earth.axis.y, earth.axis.z);
-
-		printf("%0.4f \n",				euler.angle.yaw );
-
-//	printf("AE %0.3f, ART %0.3f, AI %i, ME %0.3f, MRT %0.3f, MI %i \n\n",
-//			FAIS.accelerationError, FAIS.accelerationRecoveryTrigger,
-//			FAIS.accelerometerIgnored, FAIS.magneticError,
-//			FAIS.magneticRecoveryTrigger, FAIS.magnetometerIgnored);
-
-}
 
 void SetLaserPWM(uint16_t value) {
 	TIM_OC_InitTypeDef sConfigOC;
@@ -349,7 +229,6 @@ int main(void)
 {
 
   /* USER CODE BEGIN 1 */
-
   /* USER CODE END 1 */
 
   /* MCU Configuration--------------------------------------------------------*/
@@ -381,6 +260,11 @@ int main(void)
   MX_TIM5_Init();
   /* USER CODE BEGIN 2 */
 
+	SCB_DEMCR |= CoreDebug_DEMCR_TRCENA_Msk; // разрешаем использовать счётчик
+	DWT_CONTROL |= DWT_CTRL_CYCCNTENA_Msk;   // запускаем счётчик
+	DWT_CYCCNT = 0;
+	HAL_Delay(100); //  100 ms
+	dwt100 = DWT_CYCCNT;
 
   SetLaserPWM(0);
 
@@ -388,7 +272,7 @@ int main(void)
 //  FLASH_SaveSetting();
 //  FLASH_LoadSetting();
 
-	Full_AHRS_Init();
+    AHRS_Full_Init(hi2c1);
 
 
 
@@ -1110,8 +994,12 @@ void Task100msHandler(void *argument)
 		float sumLeft = 0;
 		float sumRight = 0;
 
-	 	AHRS_Calculation();
+		profiller_start(0);
+	    AHRS_Calculation(hi2c1);
    // 	AHRS_Calculation_print();
+		profiller_stop(0);
+
+		profiller_start(1);
 
 		for (uint8_t i = 0; i < ADC_CHANNELS_NUM * ADC_CHANNEL_LENGTH - 2; i +=
 				2) {
@@ -1129,6 +1017,9 @@ void Task100msHandler(void *argument)
 
 		clLeftW->Set_Speed(set_speed, 0);
 		clRightW->Set_Speed(set_speed, 0);
+
+		profiller_stop(1);
+
 
 		HAL_GPIO_TogglePin(GPIOC, GPIO_PIN_13);  // мигаем светодиодом
 
