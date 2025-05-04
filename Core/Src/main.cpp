@@ -30,10 +30,10 @@ using namespace std;
 #include "flash_utils.h"
 #include "Wheel.hpp"
 #include "stdio.h"
-#include "../Fusion/Fusion.h"
+
 #include <time.h>
 #include "semphr.h"
-#include "AHRSroutines.h"
+
 
 /* USER CODE END Includes */
 
@@ -126,7 +126,7 @@ uint16_t  a = 0;
 uint16_t adcData[ADC_CHANNELS_NUM*ADC_CHANNEL_LENGTH];
 float adcVoltage[ADC_CHANNELS_NUM*ADC_CHANNEL_LENGTH];
 
-//extern void AHRS_Full_Init(I2C_HandleTypeDef  hi2cX) ;
+
 
 WheelData* clLeftW;
 WheelData* clRightW;
@@ -272,7 +272,6 @@ int main(void)
 //  FLASH_SaveSetting();
 //  FLASH_LoadSetting();
 
-    AHRS_Full_Init(hi2c1);
 
 
 
@@ -900,6 +899,12 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Pull = GPIO_PULLDOWN;
   HAL_GPIO_Init(EXTI2_ENDSTOP2_GPIO_Port, &GPIO_InitStruct);
 
+  /*Configure GPIO pins : PB13 PB14 */
+  GPIO_InitStruct.Pin = GPIO_PIN_13|GPIO_PIN_14;
+  GPIO_InitStruct.Mode = GPIO_MODE_ANALOG;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
+
   /*Configure GPIO pin : L_EN_Pin */
   GPIO_InitStruct.Pin = L_EN_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
@@ -995,8 +1000,7 @@ void Task100msHandler(void *argument)
 		float sumRight = 0;
 
 		profiller_start(0);
-	    AHRS_Calculation(hi2c1);
-   // 	AHRS_Calculation_print();
+
 		profiller_stop(0);
 
 		profiller_start(1);
