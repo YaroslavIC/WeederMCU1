@@ -39,7 +39,32 @@
 
 /* Private typedef -----------------------------------------------------------*/
 /* USER CODE BEGIN PTD */
+typedef struct
+{
+	uint16_t adcData[ADC_CHANNELS_NUM * ADC_CHANNEL_LENGTH];
+	uint16_t maxData[ADC_CHANNELS_NUM];
+	uint16_t minData[ADC_CHANNELS_NUM];
 
+	float val[ADC_CHANNELS_NUM];
+	uint32_t dv[ADC_CHANNELS_NUM];
+	uint32_t shadowval[ADC_CHANNELS_NUM];
+
+	uint16_t freq[ADC_CHANNELS_NUM][ADC_CHANNEL_QUANT ];
+
+	float freqval[ADC_CHANNELS_NUM];
+	float sh_freqval[ADC_CHANNELS_NUM];
+
+	float sh_freqvallen[ADC_CHANNELS_NUM];
+	float freqvallen[ADC_CHANNELS_NUM];
+
+
+
+	uint16_t Sigcond;
+	uint16_t Sigcond2;
+
+	uint32_t sig_inx[ADC_CHANNELS_NUM]  ;
+	uint32_t nosig_inx[ADC_CHANNELS_NUM] ;
+} _pwire;
 /* USER CODE END PTD */
 
 /* Private define ------------------------------------------------------------*/
@@ -65,7 +90,6 @@ I2C_HandleTypeDef hi2c2;
 
 TIM_HandleTypeDef htim1;
 TIM_HandleTypeDef htim2;
-TIM_HandleTypeDef htim3;
 TIM_HandleTypeDef htim5;
 
 UART_HandleTypeDef huart1;
@@ -98,6 +122,9 @@ uint32_t profiller_time[20];
 float profiller_time_calc[20];
 float dwt100;
 
+_pwire PerimeterWire;
+
+
 uint32_t GetTickuS() {
 	return DWT_CYCCNT;
 }
@@ -121,21 +148,23 @@ void profiller_stop(int num) {
 
 extern osThreadId_t cmdLineTaskHandle;
 
-uint16_t  a = 0;
 
-uint16_t adcData[ADC_CHANNELS_NUM*ADC_CHANNEL_LENGTH];
-float adcVoltage[ADC_CHANNELS_NUM*ADC_CHANNEL_LENGTH];
+
+
 
 
 
 WheelData* clLeftW;
 WheelData* clRightW;
-
+uint8_t ADC_data_ready=0;
+uint16_t adclevel = 2500;
 
 extern SFlash_data_storage FS;
 
 
 float set_speed;
+uint32_t LPWM_Value = 0;
+uint32_t RPWM_Value = 0;
 
 
 
@@ -152,7 +181,6 @@ static void MX_I2C2_Init(void);
 static void MX_TIM2_Init(void);
 static void MX_TIM1_Init(void);
 static void MX_USART1_UART_Init(void);
-static void MX_TIM3_Init(void);
 static void MX_TIM5_Init(void);
 void StartDefaultTask(void *argument);
 void Task10msHandler(void *argument);
@@ -168,18 +196,26 @@ void setPWM(uint16_t pwm_value);
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
 
+void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef *hadc) {
+	if (hadc->Instance == ADC1) {
+		 profiller_stop(3);
+		 profiller_start(3);
+		for (uint8_t i = 0; i < ADC_CHANNELS_NUM; i++) {
+			if (PerimeterWire.maxData[i] < PerimeterWire.adcData[i]) {
+				PerimeterWire.maxData[i] = PerimeterWire.adcData[i];
+			};
+			if (PerimeterWire.minData[i] > PerimeterWire.adcData[i]) {
+				PerimeterWire.minData[i] = PerimeterWire.adcData[i];
+			};
+
+			PerimeterWire.freq[i][PerimeterWire.adcData[i] * ADC_CHANNEL_QUANT / 4095]++;
 
 
+		};
 
-void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef* hadc)
-{
-  if(hadc->Instance == ADC1)
-  {
-    for (uint8_t i = 0; i < ADC_CHANNELS_NUM; i++)
-    {
-      adcVoltage[i] = adcData[i] * 3.3 / 4095;
-    }
-  }
+		PerimeterWire.Sigcond++;
+
+	}
 }
 
 
@@ -256,7 +292,6 @@ int main(void)
   MX_TIM2_Init();
   MX_TIM1_Init();
   MX_USART1_UART_Init();
-  MX_TIM3_Init();
   MX_TIM5_Init();
   /* USER CODE BEGIN 2 */
 
@@ -266,6 +301,8 @@ int main(void)
 	HAL_Delay(100); //  100 ms
 	dwt100 = DWT_CYCCNT;
 
+
+
   SetLaserPWM(0);
 
 //  FS.PWMSpeedLength = 19;
@@ -273,7 +310,16 @@ int main(void)
 //  FLASH_LoadSetting();
 
 
+  // htim1 -  PWM для управления моторами
+  // htim2 - для ADC
 
+  // htim5 -  лазер ШИМ
+  // htim11 - для ОС
+
+//	for (uint8_t i = 0; i < ADC_CHANNELS_NUM; i++) {
+//		PerimeterWire.maxData[i] = 0;
+//		PerimeterWire.minData[i] = 4095;
+//	};
 
   if (HAL_TIM_Base_Start_IT(&htim2) != HAL_OK)
   {
@@ -297,8 +343,8 @@ int main(void)
 	GPIOA,
 	L_INB_Pin, GPIO_PIN_RESET, wsRight);
 
-
-
+	HAL_ADC_Start_DMA(&hadc1, (uint32_t*) PerimeterWire.adcData,	ADC_CHANNELS_NUM * ADC_CHANNEL_LENGTH);
+	HAL_TIM_Base_Start_IT(&htim2);
 
 
   /* USER CODE END 2 */
@@ -420,6 +466,7 @@ static void MX_ADC1_Init(void)
 
   /* USER CODE END ADC1_Init 0 */
 
+  ADC_AnalogWDGConfTypeDef AnalogWDGConfig = {0};
   ADC_ChannelConfTypeDef sConfig = {0};
 
   /* USER CODE BEGIN ADC1_Init 1 */
@@ -434,13 +481,24 @@ static void MX_ADC1_Init(void)
   hadc1.Init.ScanConvMode = ENABLE;
   hadc1.Init.ContinuousConvMode = DISABLE;
   hadc1.Init.DiscontinuousConvMode = DISABLE;
-  hadc1.Init.ExternalTrigConvEdge = ADC_EXTERNALTRIGCONVEDGE_NONE;
-  hadc1.Init.ExternalTrigConv = ADC_SOFTWARE_START;
+  hadc1.Init.ExternalTrigConvEdge = ADC_EXTERNALTRIGCONVEDGE_RISING;
+  hadc1.Init.ExternalTrigConv = ADC_EXTERNALTRIGCONV_T2_TRGO;
   hadc1.Init.DataAlign = ADC_DATAALIGN_RIGHT;
   hadc1.Init.NbrOfConversion = 2;
-  hadc1.Init.DMAContinuousRequests = DISABLE;
-  hadc1.Init.EOCSelection = ADC_EOC_SINGLE_CONV;
+  hadc1.Init.DMAContinuousRequests = ENABLE;
+  hadc1.Init.EOCSelection = ADC_EOC_SEQ_CONV;
   if (HAL_ADC_Init(&hadc1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+
+  /** Configure the analog watchdog
+  */
+  AnalogWDGConfig.WatchdogMode = ADC_ANALOGWATCHDOG_ALL_REG;
+  AnalogWDGConfig.HighThreshold = 2500;
+  AnalogWDGConfig.LowThreshold = 0;
+  AnalogWDGConfig.ITMode = ENABLE;
+  if (HAL_ADC_AnalogWDGConfig(&hadc1, &AnalogWDGConfig) != HAL_OK)
   {
     Error_Handler();
   }
@@ -635,11 +693,11 @@ static void MX_TIM2_Init(void)
 
   /* USER CODE END TIM2_Init 1 */
   htim2.Instance = TIM2;
-  htim2.Init.Prescaler = 1599;
+  htim2.Init.Prescaler = 159;
   htim2.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim2.Init.Period = 1000;
+  htim2.Init.Period = 3;
   htim2.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
-  htim2.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
+  htim2.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_ENABLE;
   if (HAL_TIM_Base_Init(&htim2) != HAL_OK)
   {
     Error_Handler();
@@ -649,7 +707,7 @@ static void MX_TIM2_Init(void)
   {
     Error_Handler();
   }
-  sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
+  sMasterConfig.MasterOutputTrigger = TIM_TRGO_UPDATE;
   sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
   if (HAL_TIMEx_MasterConfigSynchronization(&htim2, &sMasterConfig) != HAL_OK)
   {
@@ -658,69 +716,6 @@ static void MX_TIM2_Init(void)
   /* USER CODE BEGIN TIM2_Init 2 */
 
   /* USER CODE END TIM2_Init 2 */
-
-}
-
-/**
-  * @brief TIM3 Initialization Function
-  * @param None
-  * @retval None
-  */
-static void MX_TIM3_Init(void)
-{
-
-  /* USER CODE BEGIN TIM3_Init 0 */
-
-  /* USER CODE END TIM3_Init 0 */
-
-  TIM_ClockConfigTypeDef sClockSourceConfig = {0};
-  TIM_MasterConfigTypeDef sMasterConfig = {0};
-  TIM_OC_InitTypeDef sConfigOC = {0};
-
-  /* USER CODE BEGIN TIM3_Init 1 */
-
-  /* USER CODE END TIM3_Init 1 */
-  htim3.Instance = TIM3;
-  htim3.Init.Prescaler = 0;
-  htim3.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim3.Init.Period = 65535;
-  htim3.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
-  htim3.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
-  if (HAL_TIM_Base_Init(&htim3) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  sClockSourceConfig.ClockSource = TIM_CLOCKSOURCE_INTERNAL;
-  if (HAL_TIM_ConfigClockSource(&htim3, &sClockSourceConfig) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  if (HAL_TIM_OC_Init(&htim3) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
-  sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
-  if (HAL_TIMEx_MasterConfigSynchronization(&htim3, &sMasterConfig) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  sConfigOC.OCMode = TIM_OCMODE_TIMING;
-  sConfigOC.Pulse = 0;
-  sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
-  sConfigOC.OCFastMode = TIM_OCFAST_DISABLE;
-  if (HAL_TIM_OC_ConfigChannel(&htim3, &sConfigOC, TIM_CHANNEL_1) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  if (HAL_TIM_OC_ConfigChannel(&htim3, &sConfigOC, TIM_CHANNEL_2) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  /* USER CODE BEGIN TIM3_Init 2 */
-
-  /* USER CODE END TIM3_Init 2 */
-  HAL_TIM_MspPostInit(&htim3);
 
 }
 
@@ -879,6 +874,14 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Pull = GPIO_PULLDOWN;
   HAL_GPIO_Init(EXTI5_ENDSTOP1_GPIO_Port, &GPIO_InitStruct);
 
+  /*Configure GPIO pin : NIM3_CH1_STEP1_Pin */
+  GPIO_InitStruct.Pin = NIM3_CH1_STEP1_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  GPIO_InitStruct.Alternate = GPIO_AF2_TIM3;
+  HAL_GPIO_Init(NIM3_CH1_STEP1_GPIO_Port, &GPIO_InitStruct);
+
   /*Configure GPIO pin : R_EN_Pin */
   GPIO_InitStruct.Pin = R_EN_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
@@ -906,6 +909,14 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(L_EN_GPIO_Port, &GPIO_InitStruct);
 
+  /*Configure GPIO pin : TIM3_CH2_STEP2_Pin */
+  GPIO_InitStruct.Pin = TIM3_CH2_STEP2_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  GPIO_InitStruct.Alternate = GPIO_AF2_TIM3;
+  HAL_GPIO_Init(TIM3_CH2_STEP2_GPIO_Port, &GPIO_InitStruct);
+
 /* USER CODE BEGIN MX_GPIO_Init_2 */
 /* USER CODE END MX_GPIO_Init_2 */
 }
@@ -923,6 +934,7 @@ PUTCHAR_PROTOTYPE
 
   return ch;
 }
+
 
 
 /* USER CODE END 4 */
@@ -963,8 +975,6 @@ void Task10msHandler(void *argument)
 	/* Infinite loop */
 	for (;;) {
 
-		HAL_ADC_Start_DMA(&hadc1, (uint32_t*) adcData,
-		ADC_CHANNELS_NUM * ADC_CHANNEL_LENGTH);
 
 
 		vTaskDelayUntil(&xLastWakeTime, xFrequency);
@@ -993,19 +1003,40 @@ void Task100msHandler(void *argument)
 		float sumLeft = 0;
 		float sumRight = 0;
 
-		profiller_start(0);
 
-		profiller_stop(0);
 
-		profiller_start(1);
 
-		for (uint8_t i = 0; i < ADC_CHANNELS_NUM * ADC_CHANNEL_LENGTH - 2; i +=
-				2) {
-			sumLeft = sumLeft + adcData[i];
-			sumRight = sumRight + adcData[i + 1];
+
+		PerimeterWire.Sigcond2 = PerimeterWire.Sigcond;
+		if (PerimeterWire.Sigcond > 200) {
+			for (uint8_t i = 0; i < ADC_CHANNELS_NUM; i++) {
+
+			  profiller_stop(i);
+			  profiller_start(i);
+
+			  PerimeterWire.dv[i]  = (PerimeterWire.maxData[i]- PerimeterWire.minData[i]);
+			  PerimeterWire.val[i] = PerimeterWire.dv[i];
+
+			  PerimeterWire.maxData[i] = 0;
+			  PerimeterWire.minData[i] = 5000;
+
+		      PerimeterWire.freqval[i] = 0;
+		      PerimeterWire.sh_freqval[i] = 0;
+		      PerimeterWire.sh_freqvallen[i] = 0;
+
+			  for (uint8_t j = 0; j < ADC_CHANNEL_QUANT; j++) {
+				  if (PerimeterWire.freq[i][j]>5) {PerimeterWire.sh_freqval[i]=PerimeterWire.sh_freqval[i]+PerimeterWire.freq[i][j];PerimeterWire.sh_freqvallen[i]++;};
+			  }
+
+			  PerimeterWire.freqval[i]=PerimeterWire.sh_freqval[i] ;
+
+
+			  for (uint8_t j = 0; j < ADC_CHANNEL_QUANT; j++) {PerimeterWire.freq[i][j] = 0;};
+
+			};
+			PerimeterWire.Sigcond = 0;
 		}
-		sumLeft = sumLeft / ADC_CHANNEL_LENGTH;
-		sumRight = sumRight / ADC_CHANNEL_LENGTH;
+
 
 		clLeftW->ReadAS5600_Curr(sumLeft);
 		clRightW->ReadAS5600_Curr(sumRight);
@@ -1016,12 +1047,14 @@ void Task100msHandler(void *argument)
 		clLeftW->Set_Speed(set_speed, 0);
 		clRightW->Set_Speed(set_speed, 0);
 
-		profiller_stop(1);
+	//	clLeftW->DirectControlDriver(GPIO_PIN_RESET,GPIO_PIN_SET, LPWM_Value);
+	//	clRightW->DirectControlDriver(GPIO_PIN_RESET,GPIO_PIN_SET, RPWM_Value);
+
+		//clLeftW->Set_Speed_Assistant(20,15000);
+		//clRightW->Set_Speed_Assistant(20,15000);
 
 
 		HAL_GPIO_TogglePin(GPIOC, GPIO_PIN_13);  // мигаем светодиодом
-
-
 
 
 		vTaskDelayUntil(&xLastWakeTime, xFrequency);

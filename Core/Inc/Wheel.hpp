@@ -22,7 +22,8 @@
 #define AS5600_ANGLE_L				0x0F
 
 #define ADC_CHANNELS_NUM   			2
-#define ADC_CHANNEL_LENGTH 			50
+#define ADC_CHANNEL_LENGTH 			1
+#define ADC_CHANNEL_QUANT 			150
 
 #define  MAX_ANGLE_WHEEL_ARRAY 20
 enum DirectionEnum {WH_CW, WH_CCW,WH_STOP};
@@ -71,7 +72,13 @@ class WheelData {
 
    	void ReadAS5600_Curr(float curr_) ;
    	void Set_Speed(float Speed_, int PIDmode_);
+   	void Set_Speed_Assistant(uint8_t start_cycles,  uint32_t  _PWM_Value);
+
+
    	void Calculation(void);
+   	void OnOff_Calculation(int OnOff);
+   	void DirectControlDriver(GPIO_PinState _PinState_INA, GPIO_PinState _PinState_INB, uint32_t  PWM_Value);
+
 
    	float Current_Speed, Target_Speed;
    	uint32_t time_ms_wheel[MAX_ANGLE_WHEEL_ARRAY];
@@ -81,18 +88,26 @@ class WheelData {
    	float curr[MAX_ANGLE_WHEEL_ARRAY];
 
    	float Derror ;
+   	int OnOffCalculation;
+   	float tmpCurrent_Speed,ss;
+   	float aver_Current_Speed;
+
+   	float old_speed_assistant = 0;
+   	uint8_t start_cycles_counter = 0;
+   	uint8_t start_cycles_sequence = 0;
 
 
    	//float averspeed;	//,turns_left,prior_quadrant,current_quadrant;
    	uint32_t PWM_Channel;
    	float PWM_Value;
    	float PID_value_P, PID_value_I, PID_value_D;
+   	float PID_Sum_I;
 
    //	uint32_t speed_priortime;
    //	int32_t delta_PWM;
    	//float delta_speed;
 
-   	float PID_P, PID_I, PID_D, PID_sum_I;
+   	float PID_P, PID_I, PID_D ;
 
    	int PIDMode;
 
