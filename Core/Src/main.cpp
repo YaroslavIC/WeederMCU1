@@ -30,6 +30,7 @@
 #include "flash_utils.h"
 #include "Wheel.hpp"
 #include "stdio.h"
+#include "max17261.h"
 
 #include <time.h>
 #include "semphr.h"
@@ -117,7 +118,9 @@ const osThreadAttr_t Task100ms_attributes = {
 };
 /* USER CODE BEGIN PV */
 
+struct max17261_conf hmax17261;
 
+uint16_t voltage_batery = 0;
 uint32_t profiller_time[20];
 float profiller_time_calc[20];
 float dwt100;
@@ -301,6 +304,16 @@ int main(void)
 	HAL_Delay(100); //  100 ms
 	dwt100 = DWT_CYCCNT;
 
+	hmax17261.DesignCap = BATTERY_CAPACITY;
+	hmax17261.IchgTerm = BATTERY_CRG_TERM_I;
+	hmax17261.VEmpty = (BATTERY_V_EMPTY << 7) | (BATTERY_V_Recovery & 0x7F);
+	hmax17261.R100 = 1;
+	hmax17261.ChargeVoltage = POWER_CHG_VOLTAGE;
+
+	max17261_init(hi2c1, &hmax17261);
+
+	 voltage_batery = max17261_get_voltage(&hmax17261);
+
 
 
   SetLaserPWM(0);
@@ -329,19 +342,19 @@ int main(void)
 
 
 
- clLeftW = new WheelData(hi2c2, htim1,
+ clRightW = new WheelData(hi2c2, htim1,
 	TIM_CHANNEL_1,
 	GPIOB,
 	R_INA_Pin, GPIO_PIN_RESET,
 	GPIOB,
-	R_INB_Pin, GPIO_PIN_RESET, wsLeft);
+	R_INB_Pin, GPIO_PIN_RESET, wsRight);
 
-	clRightW = new WheelData(hi2c1, htim1,
+	clLeftW = new WheelData(hi2c1, htim1,
 	TIM_CHANNEL_4,
 	GPIOA,
 	L_INA_Pin, GPIO_PIN_RESET,
 	GPIOA,
-	L_INB_Pin, GPIO_PIN_RESET, wsRight);
+	L_INB_Pin, GPIO_PIN_RESET, wsLeft);
 
 	HAL_ADC_Start_DMA(&hadc1, (uint32_t*) PerimeterWire.adcData,	ADC_CHANNELS_NUM * ADC_CHANNEL_LENGTH);
 	HAL_TIM_Base_Start_IT(&htim2);
@@ -995,17 +1008,11 @@ void Task100msHandler(void *argument)
   /* USER CODE BEGIN Task100msHandler */
 
 	TickType_t xLastWakeTime;
-	const TickType_t xFrequency = 100 / portTICK_PERIOD_MS;
+	const TickType_t xFrequency = 250 / portTICK_PERIOD_MS;
 	xLastWakeTime = xTaskGetTickCount();
 
 	/* Infinite loop */
 	for (;;) {
-		float sumLeft = 0;
-		float sumRight = 0;
-
-
-
-
 
 		PerimeterWire.Sigcond2 = PerimeterWire.Sigcond;
 		if (PerimeterWire.Sigcond > 200) {
@@ -1038,21 +1045,17 @@ void Task100msHandler(void *argument)
 		}
 
 
-		clLeftW->ReadAS5600_Curr(sumLeft);
-		clRightW->ReadAS5600_Curr(sumRight);
+		clLeftW->ReadAS5600_Curr(0);
+	//	clRightW->ReadAS5600_Curr(0);
 
 		clLeftW->Calculation();
-		clRightW->Calculation();
+	//	clRightW->Calculation();
 
 		clLeftW->Set_Speed(set_speed, 0);
-		clRightW->Set_Speed(set_speed, 0);
+	//	clRightW->Set_Speed(set_speed, 0);
 
 	//	clLeftW->DirectControlDriver(GPIO_PIN_RESET,GPIO_PIN_SET, LPWM_Value);
 	//	clRightW->DirectControlDriver(GPIO_PIN_RESET,GPIO_PIN_SET, RPWM_Value);
-
-		//clLeftW->Set_Speed_Assistant(20,15000);
-		//clRightW->Set_Speed_Assistant(20,15000);
-
 
 		HAL_GPIO_TogglePin(GPIOC, GPIO_PIN_13);  // мигаем светодиодом
 

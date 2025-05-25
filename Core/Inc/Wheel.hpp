@@ -72,7 +72,6 @@ class WheelData {
 
    	void ReadAS5600_Curr(float curr_) ;
    	void Set_Speed(float Speed_, int PIDmode_);
-   	void Set_Speed_Assistant(uint8_t start_cycles,  uint32_t  _PWM_Value);
 
 
    	void Calculation(void);
@@ -89,7 +88,7 @@ class WheelData {
 
    	float Derror ;
    	int OnOffCalculation;
-   	float tmpCurrent_Speed,ss;
+   	float  ss;
    	float aver_Current_Speed;
 
    	float old_speed_assistant = 0;
@@ -97,22 +96,14 @@ class WheelData {
    	uint8_t start_cycles_sequence = 0;
 
 
-   	//float averspeed;	//,turns_left,prior_quadrant,current_quadrant;
    	uint32_t PWM_Channel;
    	float PWM_Value;
    	float PID_value_P, PID_value_I, PID_value_D;
    	float PID_Sum_I;
 
-   //	uint32_t speed_priortime;
-   //	int32_t delta_PWM;
-   	//float delta_speed;
-
    	float PID_P, PID_I, PID_D ;
 
    	int PIDMode;
-
-   	//	uint32_t PWM[31];
-
    };
 
 
