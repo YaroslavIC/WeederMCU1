@@ -125,6 +125,8 @@ uint32_t profiller_time[20];
 float profiller_time_calc[20];
 float dwt100;
 
+int8_t temp;
+
 _pwire PerimeterWire;
 
 
@@ -225,7 +227,7 @@ void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef *hadc) {
 
 
 
-
+//  // таймер №5, канал №3   удалить использовался для лазера
 void SetLaserPWM(uint16_t value) {
 	TIM_OC_InitTypeDef sConfigOC;
 
@@ -309,14 +311,24 @@ int main(void)
 	hmax17261.VEmpty = (BATTERY_V_EMPTY << 7) | (BATTERY_V_Recovery & 0x7F);
 	hmax17261.R100 = 1;
 	hmax17261.ChargeVoltage = POWER_CHG_VOLTAGE;
+	hmax17261.hi2c = hi2c1;
+	hmax17261.force_init = 1;
 
-	max17261_init(hi2c1, &hmax17261);
+//	max17261_init(&hmax17261);
+	// напряжение минимальное 2,75 * 5 = 13,75 В   https://habr.com/ru/articles/532616/
+	// а лучше 3 * 5 = 15 В
+	// напряжение максимальное 4,2 * 5 = 21,00 В
 
-	 voltage_batery = max17261_get_voltage(&hmax17261);
+	// https://github.com/avdwebLibraries/Forked_MAX17263-Arduino-library/blob/main/Arduino-MAX17263_Driver.ino
 
 
+ 	while(1) {
 
-  SetLaserPWM(0);
+       voltage_batery = max17261_get_voltage(&hmax17261);
+ 	  temp = (int8_t)max17261_get_temperature(&hmax17261);
+	}
+
+//  SetLaserPWM(0);
 
 //  FS.PWMSpeedLength = 19;
 //  FLASH_SaveSetting();
@@ -326,7 +338,7 @@ int main(void)
   // htim1 -  PWM для управления моторами
   // htim2 - для ADC
 
-  // htim5 -  лазер ШИМ
+  // htim5 -  лазер ШИМ   //  // таймер №5, канал №3   удалить использовался для лазера
   // htim11 - для ОС
 
 //	for (uint8_t i = 0; i < ADC_CHANNELS_NUM; i++) {

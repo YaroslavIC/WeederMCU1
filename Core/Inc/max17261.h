@@ -126,11 +126,12 @@ struct max17261_conf {
 	uint8_t	 R100;			//!< Thermistor value setting. 0 = 10k, 1 = 100k
 	uint8_t  init_option;		//!< Choose init option type
 	struct max17261_learned_params lparams;  //!< Learned parameters
+	int8_t temperature;
 	I2C_HandleTypeDef hi2c;
 };
 
 max17261_err_t
-max17261_init(I2C_HandleTypeDef hi2c_, struct max17261_conf *conf);
+max17261_init( struct max17261_conf *conf);
 uint16_t
 max17261_get_reported_capacity(struct max17261_conf *conf);
 uint16_t

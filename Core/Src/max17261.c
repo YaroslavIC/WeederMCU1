@@ -24,12 +24,10 @@
 #include "max17261.h"
 
 max17261_err_t
-max17261_init(I2C_HandleTypeDef hi2c_, struct max17261_conf *conf)
+max17261_init( struct max17261_conf *conf)
 {
 	max17261_err_t ret;
 	uint16_t value, model_cfg = 0x8000;
-
-	conf->hi2c = hi2c_;
 
 	// check for power on reset
 	ret = max17261_read_word(conf, MAX17261_Status, &value);
@@ -172,7 +170,8 @@ max17261_get_voltage(struct max17261_conf *conf)
 {
 	uint16_t value;
 	max17261_read_word(conf, MAX17261_VCell, &value);
-	value *= VOLTAGE_MULTIPLIER_V;
+	//value *= VOLTAGE_MULTIPLIER_V;
+	value = (uint16_t)(((float)value)* 1914.0 / 59071.0 );
 	return value;
 }
 
@@ -266,6 +265,7 @@ max17261_get_temperature(struct max17261_conf *conf)
 	if (ret)
 		return ret;
 
+	conf->temperature = value >> 8;
 	return value >> 8;
 }
 
@@ -378,7 +378,15 @@ max17261_get_qrtable_values(struct max17261_conf *conf)
 __attribute__((weak)) max17261_err_t
 max17261_read_word(struct max17261_conf *conf, uint8_t reg, uint16_t *value)
 {
-  return HAL_I2C_Mem_Read(&conf->hi2c , MAX17261_ADDRESS, reg, I2C_MEMADD_SIZE_16BIT, (uint8_t*)  value, 1, 0x10000);
+	HAL_StatusTypeDef rt;
+	uint8_t vl[2];
+	uint16_t v;
+
+	rt =  HAL_I2C_Mem_Read(&conf->hi2c , MAX17261_ADDRESS,  reg, I2C_MEMADD_SIZE_8BIT, (uint8_t *) &vl, 2, 0x10000);
+    v = (uint16_t)((((uint16_t)vl[0])<<8) | vl[1]);
+    *value = v;
+
+	return rt;
 }
 
 /**
@@ -392,7 +400,11 @@ max17261_read_word(struct max17261_conf *conf, uint8_t reg, uint16_t *value)
 __attribute__((weak)) max17261_err_t
 max17261_write_word(struct max17261_conf *conf, uint8_t reg, uint16_t value)
 {
-	  return HAL_I2C_Mem_Write(&conf->hi2c , MAX17261_ADDRESS, reg, I2C_MEMADD_SIZE_16BIT, (uint8_t*) &value, 1, 0x10000);
+	uint8_t vl[2];
+	vl[0] = (uint8_t)((value>>8) & 0xff);
+	vl[1] = (uint8_t)(value & 0xff);
+
+  return HAL_I2C_Mem_Write(&conf->hi2c , MAX17261_ADDRESS, reg, I2C_MEMADD_SIZE_8BIT, (uint8_t*) &vl, 2, 0x10000);
 }
 
 /**
